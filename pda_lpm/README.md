@@ -10,11 +10,12 @@ the neonatal cardiovascular system with a Patent Ductus Arteriosus (PDA). It is 
 from PDA patient clinical data and then used to simulate virtual Coarctation of the Aorta 
 (CoA) at programmable stenosis severities and variable lengths (discrete vs. long-segment).
 
-**Key Features (Version 3.0):**
-- **Global Sensitivity Analysis (GSA)**: Includes a complete Sobol/Saltelli GSA workflow to identify which model parameters most strongly influence clinical CoA outputs, helping select parameters for optimization.
-- **Clinical Severity Classification**: Predicts CoA severity (Mild, Moderate, Severe) based on the **simulated pressure gradient**, following ESC guidelines, rather than just raw anatomical stenosis.
+**Key Features (Version 4.0):**
+- **L-BFGS-B Parameter Optimization**: Bounded quasi-Newton calibration of influential parameters against patient clinical targets (MAP, SBP, DBP, SV, CoA gradient), using `fmincon` with physiologically realistic bounds.
+- **Global Sensitivity Analysis (GSA)**: A complete Sobol/Saltelli GSA workflow identifies which parameters most influence the CoA clinical outputs, selecting the optimal parameter subset for optimization.
+- **Clinical Severity Classification**: Predicts CoA severity (Mild, Moderate, Severe) based on the **simulated pressure gradient**, following ESC guidelines.
 - **Variable CoA Length**: Simulates discrete (< 5 mm) and long-segment (≥ 5 mm) coarctations.
-- **PDA Confounder Analysis**: Retains PDA parameters to demonstrate how a patent PDA can mask the observed CoA pressure gradient and lead to severity underestimation.
+- **PDA Confounder Analysis**: Retains PDA parameters to show how a patent PDA can mask observed CoA severity.
 
 This allows hemodynamic impact assessment of CoA — using only PDA-derived physiological data 
 as the calibration input. No real CoA patient data is required.
@@ -32,9 +33,15 @@ as the calibration input. No real CoA patient data is required.
 
 **Global Sensitivity Analysis:**
 1. Open MATLAB and set the working directory to `pda_lpm/`
-2. Open `run_sobol_gsa_pda_coa.m` to configure the base sample size `N` and `patient_idx`.
+2. Open `run_sobol_gsa_pda_coa.m` to configure `N` and `patient_idx`.
 3. Run: `run_sobol_gsa_pda_coa`
-4. The script will generate sampling matrices, evaluate the model in batch, and output results to `results/gsa/`.
+4. Outputs go to `results/gsa/`. The final console report lists influential parameters.
+
+**L-BFGS-B Parameter Optimization:**
+1. Open MATLAB and set the working directory to `pda_lpm/`
+2. Open `run_lbfgsb_optimization_pda_coa.m` — configure `patient_idx`, `opt_param_names`, `opt_bounds`, and `weights` in Section A.
+3. Run: `run_lbfgsb_optimization_pda_coa`
+4. Outputs go to `results/optimization/`: `optimized_parameters.csv`, `objective_history.csv`, and three PNGs.
 
 ---
 
@@ -44,6 +51,7 @@ as the calibration input. No real CoA patient data is required.
 pda_lpm/
 ├── main_pda_lpm.m               ← Entry point. No physics. No plotting.
 ├── run_sobol_gsa_pda_coa.m      ← Orchestrator for Global Sensitivity Analysis (GSA).
+├── run_lbfgsb_optimization_pda_coa.m  ← Orchestrator for bounded parameter optimization.
 ├── config/
 │   ├── default_parameters.m     ← Reference (healthy neonate) parameter set
 │   └── patient_data.csv         ← Clinical records (copy here before running)
@@ -65,13 +73,18 @@ pda_lpm/
 │   ├── sample_sobol_params.m    ← Generates Saltelli sampling matrices
 │   ├── evaluate_model_outputs.m ← Batch model evaluator for GSA
 │   └── compute_sobol_indices.m  ← Computes S1/ST indices and confidence intervals
+├── optimization/
+│   ├── objective_lbfgsb_pda_coa.m  ← Weighted objective function for fmincon
+│   ├── apply_optimized_params.m    ← Converts x_opt vector to params structs
+│   └── plot_optimization_results.m ← Convergence + before/after comparison plots
 ├── tests/
 │   ├── test_baseline.m          ← Must pass before any patient run
 │   └── test_valve_logic.m       ← Unit test for valve switching
 ├── results/
 │   ├── figures/                 ← PDF exports only
 │   ├── tables/                  ← CSV summary outputs
-│   └── gsa/                     ← GSA output CSVs, PNGs, and MAT files
+│   ├── gsa/                     ← GSA output CSVs, PNGs, and MAT files
+│   └── optimization/            ← Optimization CSVs, PNGs, and MAT workspace
 └── docs/
     ├── theory_notes.md          ← Governing equations & assumptions
     └── clinical_data_dictionary.md ← Maps CSV fields → MATLAB variables
@@ -113,7 +126,6 @@ Core states:
 
 ## Author
 
-Author
 Cardiovascular Simulation Team  
 Date: 2025  
-Version: 3.0
+Version: 4.0
