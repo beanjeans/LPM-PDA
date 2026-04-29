@@ -101,10 +101,11 @@ grid on; set(gca, 'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
 % Subplot 4: Summary text panel
 subplot(2, 2, 4); axis off;
 summary = {
-    sprintf('\\bf PDA Baseline Summary'), '';
+    sprintf('\\bf PDA Baseline Summary');
+    ' ';
     sprintf('HR:        %d bpm',        params_pda.HR_bpm);
-    sprintf('R_{PDA}:   %.3f mmHg·s/mL', params_pda.R_shunt_pda);
-    '';
+    sprintf('R_{PDA}:   %.3f mmHg\cdots/mL', params_pda.R_shunt_pda);
+    ' ';
     sprintf('P_{ao} Sys/Dia: %.1f / %.1f mmHg', idx_pda.P_ao_sys, idx_pda.P_ao_dia);
     sprintf('P_{PA} mean:    %.1f mmHg',          idx_pda.P_pa_mean);
     sprintf('SV:             %.2f mL',             idx_pda.SV_lv);
