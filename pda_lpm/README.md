@@ -8,10 +8,14 @@
 This codebase implements a patient-specific Windkessel-type Lumped Parameter Model (LPM) of 
 the neonatal cardiovascular system with a Patent Ductus Arteriosus (PDA). It is calibrated 
 from PDA patient clinical data and then used to simulate virtual Coarctation of the Aorta 
-(CoA) at programmable stenosis severities (50%, 75%, 90% narrowing).
+(CoA) at programmable stenosis severities and variable lengths (discrete vs. long-segment).
 
-This allows hemodynamic impact assessment of CoA — including pressure gradients, flow 
-redistribution, and left ventricular workload — using only PDA-derived physiological data 
+**Key Features (Version 2.0):**
+- **Clinical Severity Classification**: Predicts CoA severity (Mild, Moderate, Severe) based on the **simulated pressure gradient**, following ESC guidelines, rather than just raw anatomical stenosis.
+- **Variable CoA Length**: Simulates discrete (< 5 mm) and long-segment (≥ 5 mm) coarctations.
+- **PDA Confounder Analysis**: Retains PDA parameters to demonstrate how a patent PDA can mask the observed CoA pressure gradient and lead to severity underestimation.
+
+This allows hemodynamic impact assessment of CoA — using only PDA-derived physiological data 
 as the calibration input. No real CoA patient data is required.
 
 ---
@@ -22,7 +26,7 @@ as the calibration input. No real CoA patient data is required.
 2. Open MATLAB and set the working directory to `pda_lpm/`
 3. Run: `main_pda_lpm`
 4. Select a patient when prompted
-5. Select CoA severity scenarios when prompted
+5. Select CoA stenosis percentages and segment lengths when prompted
 
 ---
 
@@ -69,7 +73,7 @@ See `docs/theory_notes.md` for full equation derivation.
 Core states:
 - P_ra, P_rv, P_pa, Q_pa_pul, P_pv, P_la, P_lv, P_ao, Q_ao_sys, P_sys
 - PDA extension: Q_shunt_pda (11th state)
-- CoA extension: P_ao_dist, Q_shunt_coa (12th, 13th states)
+- CoA extension: P_ao_dist, Q_coa (12th, 13th states)
 
 ---
 
@@ -82,7 +86,13 @@ Core states:
 [2] Keshavarz-Motamed Z et al. (2011). Effect of coarctation of the aorta and bicuspid 
     aortic valve on flow dynamics and turbulence. J Biomech 44:2817–2825.
 
-[3] Stergiopulos N et al. (1996). Determinants of stroke volume and systolic and 
+[3] Baumgartner H et al. (2010). ESC Guidelines for the management of grown-up 
+    congenital heart disease. Eur Heart J 31(19):2369–2417.
+
+[4] Vergales JE et al. (2013). Native neonatal coarctation of the aorta: length 
+    predicts intervention. Pediatr Cardiol 34:1616–1623.
+
+[5] Stergiopulos N et al. (1996). Determinants of stroke volume and systolic and 
     diastolic aortic pressure. Am J Physiol 270(6):H2050–H2059.
 
 ---
@@ -91,4 +101,4 @@ Core states:
 
 Cardiovascular Simulation Team  
 Date: 2025  
-Version: 1.0
+Version: 2.0
