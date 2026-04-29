@@ -234,3 +234,24 @@ PDA is present and warns that the observed ΔP_CoA may underestimate true severi
 | [4] | Vergales JE et al. (2013). *Pediatr Cardiol* 34:1616–1623. / Campbell M et al. (2002). (CoA length classification: discrete < 5 mm; long-segment ≥ 5 mm) |
 | [5] | Stergiopulos N et al. (1996). *Am J Physiol* 270(6):H2050–H2059. (Elastance normalisation) |
 | [6] | Rudolph AM (2001). *Congenital Diseases of the Heart*. Futura Pub. (Neonate haemodynamic reference values) |
+
+---
+
+## 10. Global Sensitivity Analysis (Sobol Method)
+
+The codebase implements a variance-based Global Sensitivity Analysis (GSA) to identify the most influential parameters driving the clinical outputs (e.g., `ΔP_CoA_mean_sys`, `Q_coa/Q_total`). 
+
+### 10.1 Sampling Scheme
+We use the Saltelli (2002) quasi-random sampling scheme based on Sobol sequences:
+1. Two independent matrices **A** and **B** of size $N \times D$ are generated using `sobolset`.
+2. $D$ matrices **AB_i** are constructed by replacing the $i$-th column of **A** with the $i$-th column of **B**.
+3. Total model evaluations required: $N(D+2)$.
+
+### 10.2 Sensitivity Estimators
+Two indices are computed for each parameter:
+- **First-order index ($S_1$)**: Represents the main effect contribution of a parameter to the total variance of the output. Estimated via Saltelli (2010):
+  $$S_{1,i} = \frac{\frac{1}{N}\sum_{j=1}^{N} f(\mathbf{A})_j \cdot [f(\mathbf{AB}_i)_j - f(\mathbf{B})_j]}{\text{Var}(Y)}$$
+- **Total-order index ($S_T$)**: Measures both main effects and all interactions involving the parameter. Estimated via Jansen (1999):
+  $$S_{T,i} = \frac{\frac{1}{2N}\sum_{j=1}^{N} [f(\mathbf{A})_j - f(\mathbf{AB}_i)_j]^2}{\text{Var}(Y)}$$
+
+Parameters with $S_{T} < 0.05$ have a negligible impact on the variance of the clinical outputs and are considered candidates for fixing to default values during subsequent optimization (e.g., L-BFGS-B calibration).
