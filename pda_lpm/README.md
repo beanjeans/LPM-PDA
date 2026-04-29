@@ -24,24 +24,41 @@ as the calibration input. No real CoA patient data is required.
 
 ## How to Run
 
-**Baseline Simulation:**
+> **For the full research pipeline, run the scripts in this exact order:**
+> 1. `run_sobol_gsa_pda_coa` → 2. `run_lbfgsb_optimization_pda_coa` → 3. `main_pda_lpm`
+
+---
+
+### Step 1 — Global Sensitivity Analysis *(run this first)*
+Identifies which parameters most influence the CoA outputs.
 1. Ensure `patient_data.csv` is in `config/`
 2. Open MATLAB and set the working directory to `pda_lpm/`
-3. Run: `main_pda_lpm`
-4. Select a patient when prompted
-5. Select CoA stenosis percentages and segment lengths when prompted
+3. Open `run_sobol_gsa_pda_coa.m` — set `patient_idx` and optionally `N` (default 256).
+4. Run: `run_sobol_gsa_pda_coa`
+5. Read the final console output — it lists which parameters to include in optimization.
+6. Results saved to `results/gsa/`.
 
-**Global Sensitivity Analysis:**
-1. Open MATLAB and set the working directory to `pda_lpm/`
-2. Open `run_sobol_gsa_pda_coa.m` to configure `N` and `patient_idx`.
-3. Run: `run_sobol_gsa_pda_coa`
-4. Outputs go to `results/gsa/`. The final console report lists influential parameters.
+### Step 2 — L-BFGS-B Parameter Optimization *(run this second)*
+Calibrates the influential parameters to match the patient's clinical measurements.
+1. Open `run_lbfgsb_optimization_pda_coa.m` — review **Section A** at the top:
+   - Set `patient_idx` to match Step 1.
+   - Confirm `opt_param_names` contains the influential parameters from Step 1.
+   - Adjust `weights` to prioritize your most trusted clinical targets.
+2. Run: `run_lbfgsb_optimization_pda_coa`
+3. Note the optimized `stenosis_pct` and `coa_length_mm` printed at the end.
+4. Results saved to `results/optimization/`.
 
-**L-BFGS-B Parameter Optimization:**
-1. Open MATLAB and set the working directory to `pda_lpm/`
-2. Open `run_lbfgsb_optimization_pda_coa.m` — configure `patient_idx`, `opt_param_names`, `opt_bounds`, and `weights` in Section A.
-3. Run: `run_lbfgsb_optimization_pda_coa`
-4. Outputs go to `results/optimization/`: `optimized_parameters.csv`, `objective_history.csv`, and three PNGs.
+### Step 3 — Final Simulation & Figures *(run this last)*
+Runs the interactive simulation using the calibrated parameter values.
+1. Run: `main_pda_lpm`
+2. Select the patient when prompted.
+3. Enter the **optimized** `stenosis_pct` and `coa_length_mm` from Step 2 when prompted.
+4. Generates publication-ready waveform figures and the final CoA severity table.
+
+---
+
+> **`main_pda_lpm` can also be run standalone** (without Steps 1–2) if you simply want
+> to explore pressure waveforms at a manually chosen stenosis percentage.
 
 ---
 

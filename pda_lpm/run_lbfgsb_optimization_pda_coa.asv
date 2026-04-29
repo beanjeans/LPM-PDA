@@ -10,9 +10,8 @@
 %   Objective:
 %     J = Σ  w_i × ( (sim_i − clin_i) / clin_i )²
 %
-%   Uses MATLAB fmincon with the 'interior-point' algorithm and parameter
+%   Uses MATLAB fmincon with the 'quasi-newton' algorithm and parameter
 %   bounds — functionally equivalent to L-BFGS-B bounded optimization.
-%   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set):
 %   C_sys, R_systemic, Emax_lv, stenosis_pct, coa_length_mm
@@ -107,20 +106,15 @@ n_report = 2;     % ODE reporting cycles
 penalty  = 1e6;   % Objective value returned on ODE/build failure
 
 %% A7. fmincon options
-% Algorithm: 'interior-point' is the correct bounded L-BFGS-B equivalent in
-% MATLAB's fmincon. It uses a limited-memory BFGS Hessian approximation
-% internally with explicit bound constraints.
-% Valid fmincon algorithms: 'interior-point', 'sqp', 'active-set',
-%                           'trust-region-reflective'
 fmincon_opts = optimoptions('fmincon', ...
-    'Algorithm',              'interior-point', ... % L-BFGS-B equivalent
-    'Display',                'iter', ...
-    'MaxIterations',          200, ...
+    'Algorithm',          'quasi-newton', ... % L-BFGS-B equivalent in MATLAB
+    'Display',            'iter-detailed', ...
+    'MaxIterations',      200, ...
     'MaxFunctionEvaluations', 2000, ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
-    'FiniteDifferenceType',   'central', ...        % More accurate gradient
-    'OutputFcn',              @optimization_output_callback);
+    'FiniteDifferenceType',   'central', ...  % More accurate gradient estimate
+    'OutputFcn',          @optimization_output_callback);  % Records history
 
 %% A8. Output directory
 results_dir = fullfile('results', 'optimization');
@@ -279,9 +273,9 @@ end
 % =========================================================================
 %  STEP 5 — RUN OPTIMIZATION
 % =========================================================================
-fprintf('STEP 5: Running bounded L-BFGS-B style optimization (fmincon interior-point)...\n');
+fprintf('STEP 5: Running bounded quasi-Newton (L-BFGS-B style) optimization...\n');
 fprintf('  This will print iteration details below.\n');
-fprintf('  fmincon algorithm: interior-point (limited-memory BFGS Hessian)\n\n');
+fprintf('  fmincon algorithm: quasi-newton (BFGS with L-BFGS Hessian)\n\n');
 
 % Shared storage for the output callback
 global OPT_HISTORY_X OPT_HISTORY_J OPT_ITER_COUNT;
