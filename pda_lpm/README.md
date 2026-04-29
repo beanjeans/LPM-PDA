@@ -10,7 +10,7 @@ the neonatal cardiovascular system with a Patent Ductus Arteriosus (PDA). It is 
 from PDA patient clinical data and then used to simulate virtual Coarctation of the Aorta 
 (CoA) at programmable stenosis severities and variable lengths (discrete vs. long-segment).
 
-**Key Features (Version 4.0):**
+**Key Features (Version 5.0):**
 - **L-BFGS-B Parameter Optimization**: Bounded quasi-Newton calibration of influential parameters against patient clinical targets (MAP, SBP, DBP, SV, CoA gradient), using `fmincon` with physiologically realistic bounds.
 - **Global Sensitivity Analysis (GSA)**: A complete Sobol/Saltelli GSA workflow identifies which parameters most influence the CoA clinical outputs, selecting the optimal parameter subset for optimization.
 - **Clinical Severity Classification**: Predicts CoA severity (Mild, Moderate, Severe) based on the **simulated pressure gradient**, following ESC guidelines.
@@ -128,4 +128,4 @@ Core states:
 
 Cardiovascular Simulation Team  
 Date: 2025  
-Version: 4.0
+Version: 5.0
