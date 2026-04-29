@@ -5,21 +5,49 @@ function indices = compute_clinical_indices(t_sol, X_sol, params, clinical, scen
 % solution at periodic steady state. Separates model outputs (model.*)
 % from clinical measurements (clinical.*) per Guardrail §3.11.
 %
+% For CoA scenarios the PRIMARY clinical output is:
+%   predicted_CoA_severity  — classified from the simulated ΔP_CoA
+%                             (NOT from stenosis_pct directly).
+% Thresholds are read from params.severity_thresholds (editable in
+% build_coa_params) following ESC guideline consensus:
+%     Mild:       mean-systolic ΔP  <  20 mmHg
+%     Moderate:   mean-systolic ΔP  20–40 mmHg
+%     Severe:     mean-systolic ΔP  >  40 mmHg
+%
+% PDA parameters are retained and reported as haemodynamic MODIFIERS:
+% a large PDA can raise P_ao_dist, reducing observed ΔP_CoA and masking
+% true anatomical severity.
+%
 % INPUTS:
 %   t_sol          - time vector (steady-state reporting cycles)    [s]
 %   X_sol          - state matrix (n_points × n_states)
-%   params         - parameter struct (includes idx, scenario_coa)
+%   params         - parameter struct (includes idx, scenario_coa,
+%                    severity_thresholds, coa_length_mm, etc.)
 %   clinical       - clinical measurement struct (from load_patient_data)
 %   scenario_label - string label for display (e.g., 'PDA only', 'CoA 75%')
 %
 % OUTPUTS:
 %   indices  - struct with fields:
-%       .model.*     — model-derived quantities
+%       .model.*     — model-derived quantities (see list below)
 %       .clinical.*  — reference clinical values (copied, not overwritten)
 %       .validation.*— comparison metrics
 %
+%   Key model.* fields for CoA scenarios:
+%       .stenosis_pct            — anatomical input                [%]
+%       .coa_length_mm           — CoA segment length used        [mm]
+%       .coa_length_category     — 'discrete/short' or 'long-segment'
+%       .DeltaP_coa_peak         — peak pressure gradient         [mmHg]
+%       .DeltaP_coa_mean_sys     — mean systolic gradient         [mmHg]
+%       .DeltaP_coa_mean         — full-cycle mean gradient       [mmHg]
+%       .Q_coa_fraction          — Q_coa_mean / Q_total_mean     [0–1]
+%       .P_ao_proximal_mean      — mean proximal aortic pressure  [mmHg]
+%       .P_ao_distal_mean        — mean distal aortic pressure    [mmHg]
+%       .predicted_CoA_severity  — 'mild'/'moderate'/'severe'
+%       .pda_modifier_note       — text note on PDA masking effect
+%
 % ASSUMPTIONS:
 %   - Last cardiac cycle extracted for all waveform analyses
+%   - "Systolic" period = time points where P_lv > P_ao (approx. ejection)
 %   - LV volume reconstructed from P_lv and E_lv: V_lv = P_lv/E_lv + V0_lv
 %   - Qp/Qs computed from pulmonary vs systemic flow integrals
 %
@@ -28,10 +56,12 @@ function indices = compute_clinical_indices(t_sol, X_sol, params, clinical, scen
 %       Eqs. (21)–(23): MAP, SV, CO.
 %   [2] Keshavarz-Motamed et al. (2011). J Biomech 44:2817–2825.
 %       CoA gradient metrics.
+%   [3] Baumgartner et al. (2010). Eur Heart J 31(19):2369–2417.
+%       ESC guidelines: significant gradient ≥ 20 mmHg; severe > 40 mmHg.
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0
+% VERSION:  2.0  — pressure-gradient-based severity classification
 % -----------------------------------------------------------------------
 
 idx    = params.idx;
@@ -61,34 +91,116 @@ model.P_ao_dia    = min(X_cyc(:, idx.P_ao));            % [mmHg]
 model.P_ao_mean   = mean(X_cyc(:, idx.P_ao));           % [mmHg]
 
 %% -----------------------------------------------------------------------
-%  CoA-SPECIFIC PRESSURES (only when CoA scenario active)
+%  CoA-SPECIFIC OUTPUTS (only when CoA scenario active)
+%
+%  PRIMARY OUTPUT: predicted_CoA_severity  ← based on ΔP_CoA gradient
+%  The anatomical stenosis_pct drives geometry, but severity is REPORTED
+%  via the simulated pressure gradient to align with clinical practice.
 % -----------------------------------------------------------------------
 if params.scenario_coa && isfield(idx, 'P_ao_dist')
-    model.P_ao_dist_sys  = max(X_cyc(:, idx.P_ao_dist)); % [mmHg]
-    model.P_ao_dist_dia  = min(X_cyc(:, idx.P_ao_dist)); % [mmHg]
-    model.P_ao_dist_mean = mean(X_cyc(:, idx.P_ao_dist));% [mmHg]
 
-    DeltaP_coa_trace     = X_cyc(:, idx.P_ao) - X_cyc(:, idx.P_ao_dist);
-    model.DeltaP_coa_mean = mean(DeltaP_coa_trace);       % [mmHg]
-    model.DeltaP_coa_peak = max(DeltaP_coa_trace);        % [mmHg]
+    % --- Proximal / distal aortic pressures ----------------------------
+    model.P_ao_proximal_sys  = max(X_cyc(:, idx.P_ao));           % [mmHg]
+    model.P_ao_proximal_dia  = min(X_cyc(:, idx.P_ao));           % [mmHg]
+    model.P_ao_proximal_mean = mean(X_cyc(:, idx.P_ao));          % [mmHg]
 
-    % CoA severity classification (clinical standard — Ref [2])
-    if model.DeltaP_coa_mean < 10
-        model.CoA_severity_gradient = 'Mild (<10 mmHg)';
-    elseif model.DeltaP_coa_mean < 20
-        model.CoA_severity_gradient = 'Moderate (10–20 mmHg)';
+    model.P_ao_distal_sys    = max(X_cyc(:, idx.P_ao_dist));      % [mmHg]
+    model.P_ao_distal_dia    = min(X_cyc(:, idx.P_ao_dist));      % [mmHg]
+    model.P_ao_distal_mean   = mean(X_cyc(:, idx.P_ao_dist));     % [mmHg]
+
+    % Aliases kept for backward compatibility with plot_results
+    model.P_ao_dist_sys  = model.P_ao_distal_sys;
+    model.P_ao_dist_dia  = model.P_ao_distal_dia;
+    model.P_ao_dist_mean = model.P_ao_distal_mean;
+
+    % --- CoA pressure gradient trace ------------------------------------
+    DeltaP_coa_trace = X_cyc(:, idx.P_ao) - X_cyc(:, idx.P_ao_dist);  % [mmHg]
+
+    model.DeltaP_coa_peak  = max(DeltaP_coa_trace);    % peak gradient [mmHg]
+    model.DeltaP_coa_mean  = mean(DeltaP_coa_trace);   % full-cycle mean [mmHg]
+
+    % --- Mean SYSTOLIC gradient
+    %   Approximate systole as frames where P_lv > P_ao (ejection phase)
+    sys_mask = X_cyc(:, idx.P_lv) > X_cyc(:, idx.P_ao);
+    if any(sys_mask)
+        model.DeltaP_coa_mean_sys = mean(DeltaP_coa_trace(sys_mask));  % [mmHg]
     else
-        model.CoA_severity_gradient = 'Severe (>20 mmHg)';
+        % Fallback: peak-gradient phase (upper quartile of gradient trace)
+        thr_q3 = quantile(DeltaP_coa_trace, 0.75);
+        model.DeltaP_coa_mean_sys = mean(DeltaP_coa_trace(DeltaP_coa_trace >= thr_q3));
     end
 
-    % CoA flow
-    model.Q_coa_mean  = mean(X_cyc(:, idx.Q_coa));       % [mL/s]
-    model.Q_coa_peak  = max(X_cyc(:, idx.Q_coa));        % [mL/s]
+    % --- CoA flow -------------------------------------------------------
+    model.Q_coa_mean  = mean(X_cyc(:, idx.Q_coa));     % [mL/s]
+    model.Q_coa_peak  = max(X_cyc(:, idx.Q_coa));      % [mL/s]
+
+    % --- CoA / total flow fraction  (Q_coa / Q_total) ------------------
+    % Q_total into proximal aorta ≈ Q_coa + Q_ao_sys  (upper-body + CoA)
+    Q_ao_sys_mean = mean(X_cyc(:, idx.Q_ao_sys));      % [mL/s]
+    Q_total_mean  = model.Q_coa_mean + Q_ao_sys_mean;  % [mL/s]
+    if Q_total_mean > 0
+        model.Q_coa_fraction = model.Q_coa_mean / Q_total_mean;  % [0–1]
+    else
+        model.Q_coa_fraction = NaN;
+    end
+
+    % --- Anatomical metadata (pass-through from params) -----------------
+    model.stenosis_pct         = params.stenosis_pct;          % [%]
+    model.coa_length_mm        = params.coa_length_mm;         % [mm]
+    model.coa_length_category  = params.coa_length_category;   % string
+
+    % --- PRIMARY CLINICAL OUTPUT: Severity Classification ---------------
+    %   Classification is based on mean SYSTOLIC ΔP_CoA per Ref [3].
+    %   Edit params.severity_thresholds in build_coa_params to change.
+    if isfield(params, 'severity_thresholds')
+        mild_thr = params.severity_thresholds.mild_upper_mmHg;
+        mod_thr  = params.severity_thresholds.moderate_upper_mmHg;
+    else
+        mild_thr = 20;   % mmHg — fallback defaults (Ref [3])
+        mod_thr  = 40;   % mmHg
+    end
+
+    dp_classify = model.DeltaP_coa_mean_sys;   % gradient used for classification
+
+    if dp_classify < mild_thr
+        model.predicted_CoA_severity = 'mild';
+    elseif dp_classify < mod_thr
+        model.predicted_CoA_severity = 'moderate';
+    else
+        model.predicted_CoA_severity = 'severe';
+    end
+
+    % --- PDA modifier note -----------------------------------------------
+    %   PDA size modifies the observed ΔP_CoA. A large PDA raises P_ao_dist
+    %   via retrograde collateral flow, reducing the apparent gradient and
+    %   potentially causing under-classification of CoA severity.
+    if isfield(params, 'R_shunt_pda') && ~isinf(params.R_shunt_pda)
+        pda_note = sprintf('PDA present (R_pda=%.3f mmHg·s/mL) — may reduce observed dP_CoA; severity may be underestimated', ...
+                           params.R_shunt_pda);
+    else
+        pda_note = 'PDA absent — ΔP_CoA reflects isolated CoA gradient';
+    end
+    model.pda_modifier_note = pda_note;
+
 else
+    % No CoA active — set all fields to neutral defaults
     model.DeltaP_coa_mean        = 0;
+    model.DeltaP_coa_mean_sys    = 0;
     model.DeltaP_coa_peak        = 0;
-    model.CoA_severity_gradient  = 'N/A (PDA-only scenario)';
     model.Q_coa_mean             = 0;
+    model.Q_coa_peak             = 0;
+    model.Q_coa_fraction         = NaN;
+    model.P_ao_proximal_mean     = model.P_ao_mean;
+    model.P_ao_distal_mean       = NaN;
+    model.stenosis_pct           = 0;
+    model.coa_length_mm          = 0;
+    model.coa_length_category    = 'N/A';
+    model.predicted_CoA_severity = 'N/A (PDA-only scenario)';
+    model.pda_modifier_note      = 'No CoA simulated';
+    % Backward-compatible aliases
+    model.P_ao_dist_mean         = NaN;
+    model.P_ao_dist_sys          = NaN;
+    model.P_ao_dist_dia          = NaN;
 end
 
 %% -----------------------------------------------------------------------
@@ -170,13 +282,22 @@ fprintf('  Qp/Qs = %.2f  |  Q_PDA_mean = %.2f mL/s\n', ...
     model.Qp_Qs, model.Q_shunt_pda_mean);
 fprintf('  LV Stroke Work: %.2f mmHg·mL = %.4f J\n', ...
     model.SW_lv_mmHg_mL, model.SW_lv_J);
-if params.scenario_coa
-    fprintf('  CoA: Mean dP = %.1f mmHg  |  Peak dP = %.1f mmHg  →  %s\n', ...
-        model.DeltaP_coa_mean, model.DeltaP_coa_peak, model.CoA_severity_gradient);
-end
-fprintf('  Validation: MAP error = %.1f mmHg (%.1f%%)  |  SV error = %.1f mL (%.1f%%)\n\n', ...
+fprintf('  Validation: MAP error = %.1f mmHg (%.1f%%)  |  SV error = %.1f mL (%.1f%%)\n', ...
     validation.MAP_error_mmHg, validation.MAP_error_pct, ...
     validation.SV_error_mL, validation.SV_error_pct);
+
+if params.scenario_coa
+    fprintf('\n  --- CoA Clinical Output ---\n');
+    fprintf('  Stenosis:          %.0f%%\n',     model.stenosis_pct);
+    fprintf('  CoA length:        %.1f mm  [%s]\n', model.coa_length_mm, model.coa_length_category);
+    fprintf('  P_ao_proximal:     %.1f mmHg (mean)\n', model.P_ao_proximal_mean);
+    fprintf('  P_ao_distal:       %.1f mmHg (mean)\n', model.P_ao_distal_mean);
+    fprintf('  ΔP_CoA peak:       %.1f mmHg\n',  model.DeltaP_coa_peak);
+    fprintf('  ΔP_CoA mean-sys:   %.1f mmHg\n',  model.DeltaP_coa_mean_sys);
+    fprintf('  Q_coa fraction:    %.2f  (Q_coa/Q_total)\n', model.Q_coa_fraction);
+    fprintf('  → PREDICTED SEVERITY: %s\n',      upper(model.predicted_CoA_severity));
+    fprintf('  PDA modifier: %s\n\n',             model.pda_modifier_note);
+end
 
 %% Pack outputs
 indices.model      = model;

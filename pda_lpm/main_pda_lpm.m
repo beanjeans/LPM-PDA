@@ -6,9 +6,15 @@
 % PURPOSE:
 %   1. Calibrate a patient-specific LPM to PDA clinical data
 %   2. Simulate PDA-only cardiovascular physiology (baseline)
-%   3. Introduce virtual CoA stenosis (50%, 75%, 90%) and simulate
+%   3. Introduce virtual CoA (stenosis × length combinations) and simulate
 %      resulting haemodynamic changes
-%   4. Compare pressure gradients, flow redistribution, and LV workload
+%   4. Report CoA severity based on SIMULATED PRESSURE GRADIENT (not
+%      stenosis_pct directly), following ESC guideline thresholds
+%
+% KEY DESIGN PRINCIPLE:
+%   stenosis_pct  → drives CoA geometry and pressure gradient
+%   ΔP_CoA        → drives predicted_CoA_severity classification
+%   PDA           → retained as haemodynamic modifier (may mask ΔP_CoA)
 %
 % USAGE: Run this script from the pda_lpm/ directory.
 %
@@ -20,10 +26,11 @@
 % REFERENCES:
 %   [1] Ortiz-Rangel et al. (2022). Biomed Signal Process Control 71:103151.
 %   [2] Keshavarz-Motamed et al. (2011). J Biomech 44:2817–2825.
+%   [3] Baumgartner et al. (2010). Eur Heart J 31(19):2369–2417.
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0
+% VERSION:  2.0  — gradient-based severity; variable CoA length
 % =================================================================
 
 clear; clc; close all;
@@ -67,48 +74,67 @@ results_pda = compute_clinical_indices(t_sol_pda, X_sol_pda, params_pda, ...
                                        clinical, 'PDA Only (Baseline)');
 
 %% =========================================================================
-%  STEP 4 — SELECT CoA STENOSIS SCENARIOS
+%  STEP 4 — SELECT CoA STENOSIS SCENARIOS AND LENGTHS
 % =========================================================================
-fprintf('STEP 4: Select virtual CoA stenosis severities to simulate.\n');
-fprintf('  Available: 50%% (mild-moderate), 75%% (moderate-severe), 90%% (critical)\n');
-fprintf('  Enter severities as a vector, e.g., [50 75 90]:\n');
+fprintf('STEP 4: Select virtual CoA stenosis severities and lengths to simulate.\n');
+fprintf('  Stenosis:  e.g. [50 75 90] (%% area stenosis)\n');
+fprintf('  Length:    e.g. [3 8]  (mm) — discrete(<5mm) or long-segment(>=5mm)\n\n');
 
-stenosis_input = input('  CoA stenosis percentages: ');
+stenosis_input = input('  CoA stenosis percentages [default: 50 75 90]: ');
 if isempty(stenosis_input)
     stenosis_input = [50, 75, 90];
-    fprintf('  (Using default: [50 75 90])\n');
+    fprintf('  (Using default stenosis: [50 75 90]%%)\n');
+end
+
+length_input = input('  CoA length(s) in mm    [default: 3 8]:  ');
+if isempty(length_input)
+    length_input = [3, 8];   % 3 mm = discrete; 8 mm = long-segment
+    fprintf('  (Using default lengths: [3 8] mm)\n');
 end
 
 %% =========================================================================
-%  STEP 5 — SIMULATE EACH CoA SCENARIO
+%  STEP 5 — SIMULATE EACH CoA SCENARIO (stenosis × length combinations)
 % =========================================================================
 fprintf('\nSTEP 5: Simulating virtual CoA scenarios...\n\n');
 
-coa_scenarios = cell(1, length(stenosis_input));
+n_scenarios  = length(stenosis_input) * length(length_input);
+coa_scenarios = cell(1, n_scenarios);
+sc_count = 0;
 
-for s_idx = 1:length(stenosis_input)
-    s_pct   = stenosis_input(s_idx);
-    s_label = sprintf('CoA %.0f%% Stenosis', s_pct);
+for len_idx = 1:length(length_input)
+    l_mm  = length_input(len_idx);
+    for s_idx = 1:length(stenosis_input)
+        s_pct   = stenosis_input(s_idx);
+        sc_count = sc_count + 1;
 
-    fprintf('--- Scenario: %s ---\n', s_label);
+        if l_mm < 5
+            len_label = sprintf('%.0fmm-discrete', l_mm);
+        else
+            len_label = sprintf('%.0fmm-longseg', l_mm);
+        end
+        s_label = sprintf('CoA %.0f%% | %s', s_pct, len_label);
 
-    % Build CoA parameter set (extends PDA params)
-    params_coa_s = build_coa_params(params_pda, clinical, s_pct);
+        fprintf('--- Scenario %d/%d: %s ---\n', sc_count, n_scenarios, s_label);
 
-    % Simulate with PDA + CoA RHS
-    rhs_coa_s    = @(t, X) system_rhs_pda_coa(t, X, params_coa_s);
-    [t_s, X_s]   = integrate_system(rhs_coa_s, params_coa_s, n_warmup, n_report);
+        % Build CoA parameter set (extends PDA params)
+        % Pass coa_length_mm as 4th argument (new in v2.0)
+        params_coa_s = build_coa_params(params_pda, clinical, s_pct, l_mm);
 
-    % Compute clinical indices for this scenario
-    idx_s = compute_clinical_indices(t_s, X_s, params_coa_s, clinical, s_label);
+        % Simulate with PDA + CoA RHS
+        rhs_coa_s    = @(t, X) system_rhs_pda_coa(t, X, params_coa_s);
+        [t_s, X_s]   = integrate_system(rhs_coa_s, params_coa_s, n_warmup, n_report);
 
-    % Store scenario results
-    coa_scenarios{s_idx} = struct( ...
-        't_sol',   t_s,        ...
-        'X_sol',   X_s,        ...
-        'indices', idx_s,      ...
-        'params',  params_coa_s, ...
-        'label',   s_label);
+        % Compute clinical indices (severity classification inside)
+        idx_s = compute_clinical_indices(t_s, X_s, params_coa_s, clinical, s_label);
+
+        % Store scenario results
+        coa_scenarios{sc_count} = struct( ...
+            't_sol',   t_s,        ...
+            'X_sol',   X_s,        ...
+            'indices', idx_s,      ...
+            'params',  params_coa_s, ...
+            'label',   s_label);
+    end
 end
 
 %% =========================================================================
@@ -119,19 +145,52 @@ fprintf('STEP 6: Generating publication-ready figures...\n');
 plot_results(t_sol_pda, X_sol_pda, results_pda, coa_scenarios, clinical.patient_id);
 
 %% =========================================================================
-%  STEP 7 — PRINT CONSOLIDATED COMPARISON TABLE
+%  STEP 7 — PRINT CONSOLIDATED CoA SEVERITY TABLE
+%  PRIMARY OUTPUT: predicted_CoA_severity (based on simulated ΔP_CoA)
+%  stenosis_pct drives geometry only — NOT reported as severity directly.
 % =========================================================================
-fprintf('\nSTEP 7: Consolidated scenario comparison\n');
-fprintf('=================================================================\n');
-fprintf('%-22s %8s %8s %8s %10s %8s %8s\n', ...
+fprintf('\nSTEP 7: CoA Clinical Severity Summary\n');
+fprintf('=========================================================================================\n');
+fprintf('%-26s %6s %7s %10s %11s %10s %8s %s\n', ...
+    'Scenario', 'S_pct', 'L_mm', 'Category', 'dP_peak', 'dP_mean_s', 'Qcoa/Qt', 'Severity');
+fprintf('%-26s %6s %7s %10s %11s %10s %8s %s\n', ...
+    '', '%', 'mm', '', 'mmHg', 'mmHg', '-', '');
+fprintf('%s\n', repmat('-', 1, 89));
+
+for s_idx = 1:length(coa_scenarios)
+    sc  = coa_scenarios{s_idx};
+    mc  = sc.indices.model;
+    fprintf('%-26s %6.0f %7.1f %10s %11.1f %10.1f %8.2f %s\n', ...
+        sc.label, ...
+        mc.stenosis_pct, ...
+        mc.coa_length_mm, ...
+        mc.coa_length_category, ...
+        mc.DeltaP_coa_peak, ...
+        mc.DeltaP_coa_mean_sys, ...
+        mc.Q_coa_fraction, ...
+        upper(mc.predicted_CoA_severity));
+end
+
+fprintf('%s\n', repmat('=', 1, 89));
+fprintf('  Severity thresholds (ESC Ref [3]):  Mild <20 mmHg | Moderate 20-40 mmHg | Severe >40 mmHg\n');
+fprintf('  NOTE: stenosis_%% drives geometry only. Severity is reported via simulated dP_CoA.\n');
+fprintf('  NOTE: PDA (if present) may reduce dP_CoA and mask true CoA severity.\n');
+fprintf('=========================================================================================\n\n');
+
+%% =========================================================================
+%  STEP 8 — PRINT HAEMODYNAMIC COMPARISON TABLE (MAP / CO / SV)
+% =========================================================================
+fprintf('STEP 8: Haemodynamic comparison table\n');
+fprintf('%s\n', repmat('-', 1, 76));
+fprintf('%-26s %8s %8s %8s %10s %8s %8s\n', ...
     'Scenario', 'MAP', 'CO', 'SV', 'DeltaP_CoA', 'EF_LV', 'Qp/Qs');
-fprintf('%-22s %8s %8s %8s %10s %8s %8s\n', ...
+fprintf('%-26s %8s %8s %8s %10s %8s %8s\n', ...
     '', 'mmHg', 'L/min', 'mL', 'mmHg', '%', '-');
 fprintf('%s\n', repmat('-', 1, 76));
 
 % PDA-only row
 m = results_pda.model;
-fprintf('%-22s %8.1f %8.2f %8.2f %10.1f %8.1f %8.2f\n', ...
+fprintf('%-26s %8.1f %8.2f %8.2f %10.1f %8.1f %8.2f\n', ...
     'PDA Only', m.P_ao_mean, m.CO_Lmin, m.SV_lv, ...
     m.DeltaP_coa_mean, m.EF_lv*100, m.Qp_Qs);
 
@@ -139,15 +198,16 @@ fprintf('%-22s %8.1f %8.2f %8.2f %10.1f %8.1f %8.2f\n', ...
 for s_idx = 1:length(coa_scenarios)
     sc  = coa_scenarios{s_idx};
     mc  = sc.indices.model;
-    fprintf('%-22s %8.1f %8.2f %8.2f %10.1f %8.1f %8.2f\n', ...
+    fprintf('%-26s %8.1f %8.2f %8.2f %10.1f %8.1f %8.2f\n', ...
         sc.label, mc.P_ao_mean, mc.CO_Lmin, mc.SV_lv, ...
         mc.DeltaP_coa_mean, mc.EF_lv*100, mc.Qp_Qs);
 end
 
 fprintf('%s\n', repmat('=', 1, 76));
-fprintf('  Clinical reference (measured):  MAP = %.1f mmHg | SV = %.2f mL\n', ...
+fprintf('  Clinical reference:  MAP = %.1f mmHg | SV = %.2f mL\n', ...
     clinical.P_ao_mean_mmHg, clinical.SV_mL);
-fprintf('=================================================================\n\n');
-fprintf('Simulation complete.\n');
+fprintf('%s\n', repmat('=', 1, 76));
+fprintf('\nSimulation complete.\n');
 fprintf('Figures: see on-screen.\n');
 fprintf('To export figures as PDF: set MATLAB export to vector PDF.\n');
+

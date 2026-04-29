@@ -10,8 +10,29 @@ function dX = system_rhs_pda_coa(t, X, params)
 %   This extension is active when params.scenario_coa == true.
 %   Reference: docs/theory_notes.md, Section 1.3
 %
-% The CoA is modelled as viscous (Poiseuille) + turbulent (Bernoulli) resistance:
-%   DeltaP_coa = R_coa_viscous * Q_coa + K_turb_coa * Q_coa * |Q_coa|
+% CoA PHYSICS:
+%   The CoA segment is modelled as viscous (Poiseuille) + turbulent
+%   (Bernoulli) resistance + inertance:
+%     ΔP_coa = R_coa_viscous × Q_coa + K_turb_coa × Q_coa × |Q_coa|
+%
+%   CoA geometry parameters (R_coa_viscous, K_turb_coa, L_coa) are
+%   computed in build_coa_params from:
+%     - stenosis_pct  : anatomical area reduction           [%]
+%     - coa_length_mm : CoA segment length (patient-specific or scenario)
+%       Discrete/short CoA: < 5 mm  |  Long-segment CoA: ≥ 5 mm
+%
+% PRIMARY CLINICAL OUTPUT:
+%   The predicted CoA severity is NOT taken from stenosis_pct directly.
+%   It is classified in compute_clinical_indices from the simulated
+%   mean-systolic ΔP_CoA against literature-based thresholds:
+%     Mild     : ΔP_mean_sys <  20 mmHg
+%     Moderate : ΔP_mean_sys 20–40 mmHg
+%     Severe   : ΔP_mean_sys >  40 mmHg
+%
+% PDA ROLE:
+%   PDA parameters are retained in params (R_shunt_pda, L_shunt_pda).
+%   A patent PDA raises P_ao_dist, reducing observed ΔP_CoA and potentially
+%   masking true CoA severity. Report PDA as a haemodynamic MODIFIER.
 %
 % State vector:
 %   1  P_ra       [mmHg]  Right atrial pressure
@@ -32,6 +53,8 @@ function dX = system_rhs_pda_coa(t, X, params)
 %   t       - current time                                         [s]
 %   X       - state vector (13×1)
 %   params  - parameter struct from build_coa_params
+%             (must include coa_length_mm, coa_length_category,
+%              severity_thresholds, R_coa_viscous, K_turb_coa, L_coa)
 %
 % OUTPUTS:
 %   dX      - time derivatives (13×1)
@@ -39,15 +62,17 @@ function dX = system_rhs_pda_coa(t, X, params)
 % SIGN CONVENTIONS:
 %   - Q_coa > 0       : forward flow, proximal → distal aorta
 %   - Q_shunt_pda > 0 : left-to-right PDA shunt (Ao → PA)
-%   - DeltaP_coa      = P_ao (proximal) - P_ao_dist (distal)
+%   - DeltaP_coa      = P_ao (proximal) − P_ao_dist (distal)
 %
 % REFERENCES:
 %   [1] Ortiz-Rangel et al. (2022). Biomed Signal Process Control 71:103151.
 %   [2] Keshavarz-Motamed et al. (2011). J Biomech 44:2817–2825. Eq. 3–5.
+%   [3] Baumgartner et al. (2010). Eur Heart J 31(19):2369–2417.
+%       (ESC CoA severity gradient thresholds)
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0
+% VERSION:  2.0  — variable CoA length; gradient-based severity
 % -----------------------------------------------------------------------
 
 dX  = zeros(13, 1);
