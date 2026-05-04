@@ -2,37 +2,51 @@
 
 Maps fields in `patient_data.csv` to MATLAB variables used in the LPM.
 
-| CSV Field     | MATLAB Variable              | Unit (CSV) | Unit (Model) | Method            | Reliability | Notes                              |
-|---------------|------------------------------|------------|--------------|-------------------|-------------|------------------------------------|
-| PatientID     | clinical.patient_id          | string     | string       | Record            | High        | De-identified                      |
-| Age           | clinical.age_days            | days       | days         | Record            | High        |                                    |
-| Sex           | clinical.sex                 | F/M        | F/M          | Record            | High        |                                    |
-| TB            | clinical.weight_total_g      | g          | g            | Scale             | High        | Total body weight                  |
-| BB            | clinical.weight_body_kg      | kg         | kg           | Scale             | High        | Body weight (non-fluid)            |
-| BSA           | clinical.BSA_m2              | m²         | m²           | Clinical record   | Moderate    | Directly recorded; not formula-derived |
-| HeartRate     | clinical.HR_bpm              | bpm        | bpm          | ECG               | High        |                                    |
-| StrokeVolume  | clinical.SV_mL               | mL         | mL           | Echo              | Moderate    |                                    |
-| BP            | clinical.BP_string           | mmHg       | —            | Sphygmomanometer  | Moderate    | Formatted as "sys/dia"             |
-| SSAP          | clinical.P_ao_sys_mmHg       | mmHg       | mmHg         | Sphygmomanometer  | Moderate    | Systolic aortic pressure           |
-| SDAP          | clinical.P_ao_dia_mmHg       | mmHg       | mmHg         | Sphygmomanometer  | Moderate    | Diastolic aortic pressure          |
-| MAP           | clinical.P_ao_mean_mmHg      | mmHg       | mmHg         | Derived           | Derived     | Mean arterial pressure             |
-| DPDA          | clinical.D_shunt_pda_mm      | mm         | mm → m (internal) | Echo        | Moderate    | PDA duct diameter                  |
-| DCoA          | clinical.D_coa_mm            | mm         | mm → m (internal) | Echo        | Moderate    | CoA orifice diameter (if present)  |
-| DAAo          | clinical.D_aao_mm            | mm         | mm           | Echo              | Moderate    | Ascending aorta diameter           |
-| DDTA          | clinical.D_dta_mm            | mm         | mm           | Echo              | Moderate    | Descending thoracic aorta          |
-| DIsthmus      | clinical.D_isthmus_mm        | mm         | mm           | Echo              | Moderate    | Aortic isthmus diameter            |
-| DDAo          | clinical.D_dao_mm            | mm         | mm           | Echo              | Moderate    | Descending aorta diameter          |
-| DAoV          | clinical.D_aov_mm            | mm         | mm           | Echo              | Moderate    | Aortic valve annulus               |
-| DPV           | clinical.D_pv_mm             | mm         | mm           | Echo              | Moderate    | Pulmonary valve annulus            |
-| vAoV          | clinical.v_aov_ms            | m/s        | m/s          | Doppler           | High        | Peak velocity through aortic valve |
-| vPV           | clinical.v_pv_ms             | m/s        | m/s          | Doppler           | High        | Peak velocity through pulm valve   |
-| vPDA          | clinical.v_pda_ms            | m/s        | m/s          | Doppler           | High        | Peak PDA flow velocity             |
-| vCoA          | clinical.v_coa_ms            | m/s        | m/s          | Doppler           | High        | Peak CoA velocity (if present)     |
-| ArahAliranPDA | clinical.pda_direction       | 1/2/3      | 1/2/3        | Doppler           | High        | 1=L→R, 2=R→L, 3=bidirectional     |
-| dPAoV         | clinical.dP_aov_mmHg         | mmHg       | mmHg         | Doppler (Bernoulli)| Moderate   | Gradient across aortic valve       |
-| dPPV          | clinical.dP_pv_mmHg          | mmHg       | mmHg         | Doppler (Bernoulli)| Moderate   | Gradient across pulm valve         |
-| dPPDA         | clinical.dP_pda_mmHg         | mmHg       | mmHg         | Doppler (Bernoulli)| Moderate   | PDA pressure gradient              |
-| dPCoA         | clinical.dP_coa_mmHg         | mmHg       | mmHg         | Doppler (Bernoulli)| Moderate   | CoA gradient (reference only)      |
+## Actively Used Fields
+
+These fields are read by the model and directly used in physics calculations,
+parameter calibration, or the optimisation objective function.
+
+| CSV Field     | MATLAB Variable           | Unit (CSV) | Unit (Model)      | Used In                                          |
+|---------------|---------------------------|------------|-------------------|--------------------------------------------------|
+| PatientID     | clinical.patient_id       | string     | string            | Patient identification, output filenames         |
+| HeartRate     | clinical.HR_bpm           | bpm        | bpm               | Cardiac timing (`T_cardiac`, `Ts1`, `Ts2`)       |
+| StrokeVolume  | clinical.SV_mL            | mL         | mL                | Elastance calibration (`Emax_lv`), CO, obj fn    |
+| SSAP          | clinical.P_ao_sys_mmHg    | mmHg       | mmHg              | Optimisation objective (SBP target)              |
+| SDAP          | clinical.P_ao_dia_mmHg    | mmHg       | mmHg              | Optimisation objective (DBP target)              |
+| MAP           | clinical.P_ao_mean_mmHg   | mmHg       | mmHg              | `R_systemic`, initial conditions, obj fn (MAP)   |
+| DPDA          | clinical.D_shunt_pda_mm   | mm         | mm → m (internal) | `Q_pda_est` → `R_shunt_pda` computation         |
+| DAAo          | clinical.D_aao_mm         | mm         | mm → m (internal) | Reference aortic diameter for virtual CoA geometry|
+| vPDA          | clinical.v_pda_ms         | m/s        | m/s               | `Q_pda_est` → `R_shunt_pda` computation         |
+| ArahAliranPDA | clinical.pda_direction    | 1/2/3      | 1/2/3             | Estimated PA pressure (`P_pa_est_mmHg`)          |
+| dPPDA         | clinical.dP_pda_mmHg      | mmHg       | mmHg              | `R_shunt_pda`, PA pressure est., obj fn          |
+| dPCoA         | clinical.dP_coa_mmHg      | mmHg       | mmHg              | Optimisation objective (CoA gradient target)     |
+
+## Stored-Only Fields (Reference Data — Not Used in Calculations)
+
+These fields are loaded into the `clinical` struct but are **not referenced**
+in any physics function, calibration step, or objective function.
+They are retained as clinical reference data only.
+
+| CSV Field  | MATLAB Variable          | Unit   | Notes                                         |
+|------------|--------------------------|--------|-----------------------------------------------|
+| Age        | clinical.age_days        | days   | Patient descriptor; printed to console only   |
+| Sex        | clinical.sex             | F/M    | Patient descriptor; printed to console only   |
+| TB         | clinical.weight_total_g  | g      | Patient descriptor; not used in model         |
+| BB         | clinical.weight_body_kg  | kg     | Patient descriptor; printed to console only   |
+| BSA        | clinical.BSA_m2          | m²     | Directly recorded clinical value; not used in scaling |
+| BP         | clinical.BP_string       | mmHg   | Raw string ("sys/dia"); superseded by SSAP/SDAP |
+| DCoA       | clinical.D_coa_mm        | mm     | Echo CoA orifice; stored for reference only   |
+| DDTA       | clinical.D_dta_mm        | mm     | Descending thoracic aorta; not in physics     |
+| DIsthmus   | clinical.D_isthmus_mm    | mm     | Aortic isthmus; not in physics                |
+| DDAo       | clinical.D_dao_mm        | mm     | Descending aorta; not in physics              |
+| DAoV       | clinical.D_aov_mm        | mm     | Aortic valve annulus; not in physics          |
+| DPV        | clinical.D_pv_mm         | mm     | Pulmonary valve annulus; not in physics       |
+| vAoV       | clinical.v_aov_ms        | m/s    | AoV peak velocity; not in physics             |
+| vPV        | clinical.v_pv_ms         | m/s    | PV peak velocity; not in physics              |
+| vCoA       | clinical.v_coa_ms        | m/s    | CoA peak velocity; stored for reference only  |
+| dPAoV      | clinical.dP_aov_mmHg     | mmHg   | AoV gradient; not in physics or obj fn        |
+| dPPV       | clinical.dP_pv_mmHg      | mmHg   | PV gradient; not in physics or obj fn         |
 
 ## Notes on Reliability
 
