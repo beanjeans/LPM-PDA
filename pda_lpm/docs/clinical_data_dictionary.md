@@ -9,7 +9,7 @@ Maps fields in `patient_data.csv` to MATLAB variables used in the LPM.
 | Sex           | clinical.sex                 | F/M        | F/M          | Record            | High        |                                    |
 | TB            | clinical.weight_total_g      | g          | g            | Scale             | High        | Total body weight                  |
 | BB            | clinical.weight_body_kg      | kg         | kg           | Scale             | High        | Body weight (non-fluid)            |
-| BSA           | clinical.BSA_m2              | m²         | m²           | Derived (Mosteller)| Derived    |                                    |
+| BSA           | clinical.BSA_m2              | m²         | m²           | Clinical record   | Moderate    | Directly recorded; not formula-derived |
 | HeartRate     | clinical.HR_bpm              | bpm        | bpm          | ECG               | High        |                                    |
 | StrokeVolume  | clinical.SV_mL               | mL         | mL           | Echo              | Moderate    |                                    |
 | BP            | clinical.BP_string           | mmHg       | —            | Sphygmomanometer  | Moderate    | Formatted as "sys/dia"             |
@@ -44,5 +44,5 @@ Maps fields in `patient_data.csv` to MATLAB variables used in the LPM.
 
 All unit conversions are performed in `utils/load_patient_data.m`:
 - Diameters: mm → stored as mm; converted to m only inside physics functions
-- BSA: already in m² in the CSV (Mosteller formula applied at data collection)
+- BSA: already in m² in the CSV (directly recorded clinical measurement; no formula applied)
 - EF: not directly in CSV; derived in `compute_clinical_indices.m`

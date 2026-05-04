@@ -65,7 +65,7 @@ clinical.sex                = row.Sex{1};                 % 'F' or 'M'
 % Body measurements
 clinical.weight_total_g     = row.TB(1);                  % [g]
 clinical.weight_body_kg     = row.BB(1);                  % [kg]
-clinical.BSA_m2             = row.BSA(1);                 % [m²] — Mosteller, pre-computed
+clinical.BSA_m2             = row.BSA(1);                 % [m²] — directly recorded clinical measurement
 
 % Cardiac timing
 clinical.HR_bpm             = row.HeartRate(1);           % [bpm]
