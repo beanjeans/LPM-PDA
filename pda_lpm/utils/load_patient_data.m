@@ -16,7 +16,7 @@ function [clinical, patient_table] = load_patient_data(csv_path)
 %
 % ASSUMPTIONS:
 %   - CSV columns match clinical_data_dictionary.md exactly
-%   - Age is in days; weights in g (TB) and kg (BB); BSA in m²
+%   - Age is in days; TB = Tinggi badan (height) in cm; BB = Berat badan (weight) in grams; BSA in m²
 %   - All pressures already in mmHg; velocities in m/s
 %
 % REFERENCES:
@@ -63,9 +63,9 @@ clinical.age_days           = row.Age(1);                 % [days]
 clinical.sex                = row.Sex{1};                 % 'F' or 'M'
 
 % Body measurements
-clinical.weight_total_g     = row.TB(1);                  % [g]
-clinical.weight_body_kg     = row.BB(1);                  % [kg]
-clinical.BSA_m2             = row.BSA(1);                 % [m²] — directly recorded clinical measurement
+clinical.height_cm          = row.TB(1);                  % [cm]  — Tinggi badan (body height)
+clinical.weight_g           = row.BB(1);                  % [g]   — Berat badan (body weight in grams)
+clinical.BSA_m2             = row.BSA(1);                 % [m²]  — directly recorded clinical measurement
 
 % Cardiac timing
 clinical.HR_bpm             = row.HeartRate(1);           % [bpm]
@@ -87,9 +87,10 @@ clinical.D_aov_mm           = row.DAoV(1);               % [mm] — aortic valve
 clinical.D_pv_mm            = row.DPV(1);                % [mm] — pulmonary valve annulus
 
 % Doppler velocities
-clinical.v_aov_ms           = row.vAoV(1);               % [m/s] — aortic valve
-clinical.v_pv_ms            = row.vPV(1);                % [m/s] — pulmonary valve
-clinical.v_pda_ms           = row.vPDA(1);               % [m/s] — PDA peak velocity
+clinical.v_aov_ms           = row.vAoV(1);               % [m/s] — aortic valve (CW Doppler, A5C)
+clinical.v_pv_psax_ms       = row.vPVpsax(1);            % [m/s] — pulmonary valve via PSAX (CW Doppler)
+clinical.v_pv_supra_ms      = row.vPVsupra(1);           % [m/s] — pulmonary valve via Suprasternal (CW Doppler)
+clinical.v_pda_ms           = row.vPDA(1);               % [m/s] — PDA peak velocity (CW Doppler)
 clinical.v_coa_ms           = row.vCoA(1);               % [m/s] — CoA peak velocity (ref)
 
 % PDA flow direction (1 = L→R, 2 = R→L, 3 = bidirectional)
@@ -117,8 +118,8 @@ end
 
 %% Display summary
 fprintf('\n--- SELECTED PATIENT: %s ---\n', clinical.patient_id);
-fprintf('  Age: %g days  |  Sex: %s  |  Weight: %.2f kg\n', ...
-    clinical.age_days, clinical.sex, clinical.weight_body_kg);
+fprintf('  Age: %g days  |  Sex: %s  |  Height: %.1f cm  |  Weight: %.0f g\n', ...
+    clinical.age_days, clinical.sex, clinical.height_cm, clinical.weight_g);
 fprintf('  HR: %d bpm  |  SV: %.2f mL  |  CO: %.2f L/min\n', ...
     clinical.HR_bpm, clinical.SV_mL, clinical.CO_Lmin);
 fprintf('  MAP: %.1f mmHg  |  Sys/Dia: %d/%d mmHg\n', ...

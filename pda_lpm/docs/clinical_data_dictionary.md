@@ -32,8 +32,8 @@ They are retained as clinical reference data only.
 |------------|--------------------------|--------|-----------------------------------------------|
 | Age        | clinical.age_days        | days   | Patient descriptor; printed to console only   |
 | Sex        | clinical.sex             | F/M    | Patient descriptor; printed to console only   |
-| TB         | clinical.weight_total_g  | g      | Patient descriptor; not used in model         |
-| BB         | clinical.weight_body_kg  | kg     | Patient descriptor; printed to console only   |
+| TB         | clinical.height_cm        | cm     | Tinggi badan (body height); patient descriptor; not used in model |
+| BB         | clinical.weight_g         | g      | Berat badan (body weight in grams); patient descriptor; not used in model |
 | BSA        | clinical.BSA_m2          | m²     | Directly recorded clinical value; not used in scaling |
 | BP         | clinical.BP_string       | mmHg   | Raw string ("sys/dia"); superseded by SSAP/SDAP |
 | DCoA       | clinical.D_coa_mm        | mm     | Echo CoA orifice; stored for reference only   |
@@ -43,7 +43,8 @@ They are retained as clinical reference data only.
 | DAoV       | clinical.D_aov_mm        | mm     | Aortic valve annulus; not in physics          |
 | DPV        | clinical.D_pv_mm         | mm     | Pulmonary valve annulus; not in physics       |
 | vAoV       | clinical.v_aov_ms        | m/s    | AoV peak velocity; not in physics             |
-| vPV        | clinical.v_pv_ms         | m/s    | PV peak velocity; not in physics              |
+| vPVpsax    | clinical.v_pv_psax_ms     | m/s    | PV peak velocity via PSAX (CW Doppler); not in physics         |
+| vPVsupra   | clinical.v_pv_supra_ms    | m/s    | PV peak velocity via Suprasternal (CW Doppler); not in physics |
 | vCoA       | clinical.v_coa_ms        | m/s    | CoA peak velocity; stored for reference only  |
 | dPAoV      | clinical.dP_aov_mmHg     | mmHg   | AoV gradient; not in physics or obj fn        |
 | dPPV       | clinical.dP_pv_mmHg      | mmHg   | PV gradient; not in physics or obj fn         |
@@ -58,5 +59,7 @@ They are retained as clinical reference data only.
 
 All unit conversions are performed in `utils/load_patient_data.m`:
 - Diameters: mm → stored as mm; converted to m only inside physics functions
+- TB (Tinggi badan): stored as-is in cm; no conversion applied
+- BB (Berat badan): stored as-is in grams; no conversion applied
 - BSA: already in m² in the CSV (directly recorded clinical measurement; no formula applied)
 - EF: not directly in CSV; derived in `compute_clinical_indices.m`
