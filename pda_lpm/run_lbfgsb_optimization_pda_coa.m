@@ -185,10 +185,12 @@ fprintf('  Clinical CoA gradient (echo): %.1f mmHg\n\n', clinical.dP_coa_mmHg);
 % =========================================================================
 fprintf('STEP 2: Building baseline patient parameters...\n');
 
-params_default = default_parameters();
+% Pass patient BW for allometric scaling (Pennati & Fumero 2000)
+BW_neo_kg_opt = clinical.weight_g / 1000;   % [g] → [kg]
+params_default = default_parameters(BW_neo_kg_opt);
 uc = unit_conversion();
 
-% Calibrate from clinical data (mirrors build_patient_params logic, silent)
+% Calibrate from clinical data — mirrors build_patient_params v2.0 (silent)
 params_base = params_default;
 params_base.HR_bpm    = clinical.HR_bpm;
 params_base.T_cardiac = 60 / clinical.HR_bpm;
@@ -197,15 +199,20 @@ params_base.Ts2       = 0.45 * sqrt(params_base.T_cardiac);
 params_base.R_systemic = clinical.P_ao_mean_mmHg / clinical.CO_mLs;
 
 P_lv_target    = clinical.P_ao_mean_mmHg * 1.30;
-params_base.Emax_lv = P_lv_target / clinical.SV_mL;
+params_base.Emax_lv = max(3.0, min(20.0, P_lv_target / clinical.SV_mL));
 params_base.Emin_lv = params_base.Emax_lv * 0.05;
-params_base.Emax_rv = params_base.Emax_lv * 0.5;
-params_base.Emin_rv = params_base.Emin_lv;
+params_base.Emax_rv = max(1.5, min(12.0, params_base.Emax_lv * 0.5));
+params_base.Emin_rv = params_base.Emax_rv * 0.05;
 
-D_pda_m   = clinical.D_shunt_pda_mm * uc.mm_to_m;
-A_pda_m2  = pi * (D_pda_m / 2)^2;
-Q_pda_est = max(A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs, 0.5);
-params_base.R_shunt_pda = max(0.01, min(50, clinical.dP_pda_mmHg / Q_pda_est));
+% Hagen-Poiseuille PDA resistance (matches build_patient_params v2.0)
+D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;
+A_pda_m2     = pi * (D_pda_m / 2)^2;
+L_pda_m      = 5e-3;  % 5 mm assumed PDA length
+R_pda_HP_SI  = (128 * params_base.mu_blood_Pa_s * L_pda_m) / (pi * D_pda_m^4);
+R_pda_HP     = R_pda_HP_SI * uc.Pa_s_m3_to_mmHg_s_mL;
+Q_pda_vel    = max(A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs, 0.5);
+R_pda_Doppl  = clinical.dP_pda_mmHg / Q_pda_vel;
+params_base.R_shunt_pda = max(0.005, min(20, min(R_pda_HP, R_pda_Doppl)));
 params_base.P_pa_target_mmHg = clinical.P_pa_est_mmHg;
 
 params_base.X0(params_base.idx.P_ao)  = clinical.P_ao_mean_mmHg;

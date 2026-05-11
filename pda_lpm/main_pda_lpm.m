@@ -30,7 +30,7 @@
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  2.0  — gradient-based severity; variable CoA length
+% VERSION:  3.0  — allometric scaling (Pennati & Fumero 2000); variable CoA length
 % =================================================================
 
 clear; clc; close all;
@@ -56,7 +56,17 @@ csv_path = fullfile('config', 'patient_data.csv');
 % =========================================================================
 fprintf('STEP 2: Building patient-specific LPM parameters...\n');
 
-params_default  = default_parameters();
+% Convert clinical weight from grams to kg for allometric scaling
+BW_neo_kg = clinical.weight_g / 1000;   % [g] → [kg]
+% Gestational age: read from CSV if available, otherwise use default
+if isfield(clinical, 'GA_weeks')
+    GA_neo_weeks = clinical.GA_weeks;
+else
+    GA_neo_weeks = 29;   % default preterm reference [weeks]
+end
+
+% Build allometrically-scaled default parameters for this patient's body weight
+params_default  = default_parameters(BW_neo_kg, GA_neo_weeks);
 params_pda      = build_patient_params(clinical, params_default);
 
 %% =========================================================================
