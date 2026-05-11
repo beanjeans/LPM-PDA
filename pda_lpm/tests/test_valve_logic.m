@@ -15,7 +15,10 @@ fprintf('=================================================================\n');
 fprintf('  TEST_VALVE_LOGIC\n');
 fprintf('=================================================================\n\n');
 
-params = default_parameters();
+% Load BW strictly from clinical CSV — no hardcoded weight assumptions
+clinical_test = load_patient_data('../config/patient_data.csv', 1);
+BW_neo_kg_test = clinical_test.weight_g / 1000;   % BB [g] → [kg]
+params = default_parameters(BW_neo_kg_test);
 n_pass = 0; n_fail = 0;
 
 function result = assert_approx(name, val, expected, tol)

@@ -32,8 +32,12 @@ fprintf('=================================================================\n\n')
 %% Add paths
 addpath('../config', '../models', '../solvers', '../utils');
 
-%% Load default parameters (no PDA — test baseline)
-params = default_parameters();
+%% Load default parameters — BW from clinical CSV only, no hardcoded values
+clinical_test = load_patient_data('../config/patient_data.csv', 1);
+BW_neo_kg_test = clinical_test.weight_g / 1000;   % BB [g] → [kg]
+fprintf('  Using patient P01 body weight: %.3f kg (%.0f g)\n\n', ...
+    BW_neo_kg_test, clinical_test.weight_g);
+params = default_parameters(BW_neo_kg_test);
 
 % Disable PDA for baseline test (R_shunt_pda = Inf means shunt absent)
 params.R_shunt_pda = Inf;   % No PDA shunt at baseline

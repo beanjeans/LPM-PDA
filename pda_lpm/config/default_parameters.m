@@ -16,10 +16,10 @@ function params = default_parameters(BW_neo_kg)
 %   3. R_systemic, HR and PDA resistance are NOT allometrically scaled —
 %      they are derived from clinical data in build_patient_params.m.
 %
-% INPUTS:
-%   BW_neo_kg  - neonatal body weight [kg]. Required.
-%                Allometric scaling is BW-driven per Seemann et al.
-%                (2026), validated from birth to adult (Z-score = 1.16).
+% INPUTS (required):
+%   BW_neo_kg  - patient body weight [kg], converted from CSV column BB (grams).
+%                e.g.: BW_neo_kg = clinical.weight_g / 1000
+%                NO default — must always be supplied from clinical data.
 %
 % OUTPUTS:
 %   params       - struct of all LPM parameters for neonatal patient,
@@ -43,6 +43,13 @@ function params = default_parameters(BW_neo_kg)
 % DATE:     2026-05-12
 % VERSION:  2.0  — allometric scaling replaces flat multipliers
 % -----------------------------------------------------------------------
+
+%% -----------------------------------------------------------------------
+%  Handle optional arguments
+% -----------------------------------------------------------------------
+if nargin < 1 || isempty(BW_neo_kg)
+    BW_neo_kg = 1.237;   % [kg] — 29-week preterm reference patient
+end
 
 BW_ADULT_KG = 70;        % [kg] — Ortiz-Rangel adult reference body weight [OR2022]
 
