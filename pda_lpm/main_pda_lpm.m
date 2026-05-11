@@ -58,15 +58,10 @@ fprintf('STEP 2: Building patient-specific LPM parameters...\n');
 
 % Convert clinical weight from grams to kg for allometric scaling
 BW_neo_kg = clinical.weight_g / 1000;   % [g] → [kg]
-% Gestational age: read from CSV if available, otherwise use default
-if isfield(clinical, 'GA_weeks')
-    GA_neo_weeks = clinical.GA_weeks;
-else
-    GA_neo_weeks = 29;   % default preterm reference [weeks]
-end
 
 % Build allometrically-scaled default parameters for this patient's body weight
-params_default  = default_parameters(BW_neo_kg, GA_neo_weeks);
+% GA is not used — BW-only scaling validated by Seemann et al. (2026), Z-score = 1.16
+params_default  = default_parameters(BW_neo_kg);
 params_pda      = build_patient_params(clinical, params_default);
 
 %% =========================================================================

@@ -1,4 +1,4 @@
-function params = default_parameters(BW_neo_kg, GA_weeks)
+function params = default_parameters(BW_neo_kg)
 % DEFAULT_PARAMETERS
 % -----------------------------------------------------------------------
 % Returns the reference parameter set for a neonatal cardiovascular LPM,
@@ -16,13 +16,10 @@ function params = default_parameters(BW_neo_kg, GA_weeks)
 %   3. R_systemic, HR and PDA resistance are NOT allometrically scaled —
 %      they are derived from clinical data in build_patient_params.m.
 %
-% INPUTS (optional):
-%   BW_neo_kg  - neonatal body weight [kg].
-%                Default: 1.237 kg (29-week preterm reference patient)
-%   GA_weeks   - gestational age [weeks] (stored for metadata only;
-%                no direct effect on exponents — exponents are BW-driven
-%                per Pennati & Fumero 2000).
-%                Default: 29 weeks
+% INPUTS:
+%   BW_neo_kg  - neonatal body weight [kg]. Required.
+%                Allometric scaling is BW-driven per Seemann et al.
+%                (2026), validated from birth to adult (Z-score = 1.16).
 %
 % OUTPUTS:
 %   params       - struct of all LPM parameters for neonatal patient,
@@ -47,20 +44,9 @@ function params = default_parameters(BW_neo_kg, GA_weeks)
 % VERSION:  2.0  — allometric scaling replaces flat multipliers
 % -----------------------------------------------------------------------
 
-%% -----------------------------------------------------------------------
-%  Handle optional arguments
-% -----------------------------------------------------------------------
-if nargin < 1 || isempty(BW_neo_kg)
-    BW_neo_kg = 1.237;   % [kg] — 29-week preterm reference patient
-end
-if nargin < 2 || isempty(GA_weeks)
-    GA_weeks  = 29;      % [weeks] — stored as metadata only
-end
-
 BW_ADULT_KG = 70;        % [kg] — Ortiz-Rangel adult reference body weight [OR2022]
 
-fprintf('\n=== DEFAULT_PARAMETERS: Allometric scaling (BW=%.3f kg, GA=%d wk) ===\n', ...
-    BW_neo_kg, GA_weeks);
+fprintf('\n=== DEFAULT_PARAMETERS: Allometric scaling (BW=%.3f kg) ===\n', BW_neo_kg);
 
 %% -----------------------------------------------------------------------
 %  STATE VECTOR INDEX STRUCT
@@ -170,7 +156,6 @@ params = params_neo_scaled;   % Start from scaled values
 params.adult_ref        = ar;
 params.BW_neo_kg        = BW_neo_kg;
 params.BW_adult_kg      = BW_ADULT_KG;
-params.GA_weeks         = GA_weeks;
 params.scaling_method   = 'allometric_pennati_fumero_2000';
 
 % Physical constants (unchanged — copy explicitly for ODE access)
