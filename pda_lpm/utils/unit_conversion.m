@@ -32,6 +32,8 @@ uc.Lmin_to_mLs = 1000 / 60;  % [mL/s per L/min]
 % --- Length / Area ---
 uc.mm_to_m     = 1e-3;        % [m / mm]
 uc.m_to_mm     = 1e3;         % [mm / m]
+uc.cm_to_m     = 1e-2;        % [m / cm]
+uc.m_to_cm     = 1e2;         % [cm / m]
 uc.mm2_to_m2   = 1e-6;        % [m² / mm²]
 uc.m2_to_mm2   = 1e6;         % [mm² / m²]
 

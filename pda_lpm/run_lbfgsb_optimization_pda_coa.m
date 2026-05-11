@@ -147,7 +147,7 @@ clinical.SV_mL              = row.StrokeVolume(1);
 clinical.P_ao_sys_mmHg      = row.SSAP(1);
 clinical.P_ao_dia_mmHg      = row.SDAP(1);
 clinical.P_ao_mean_mmHg     = row.MAP(1);
-clinical.D_shunt_pda_mm     = row.DPDA(1);
+clinical.D_shunt_pda_cm     = row.DPDA(1);
 clinical.D_coa_mm           = row.DCoA(1);
 clinical.D_aao_mm           = row.DAAo(1);
 clinical.D_dta_mm           = row.DDTA(1);
@@ -205,7 +205,7 @@ params_base.Emax_rv = max(1.5, min(12.0, params_base.Emax_lv * 0.5));
 params_base.Emin_rv = params_base.Emax_rv * 0.05;
 
 % Hagen-Poiseuille PDA resistance (matches build_patient_params v2.0)
-D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;
+D_pda_m      = clinical.D_shunt_pda_cm * uc.cm_to_m;
 A_pda_m2     = pi * (D_pda_m / 2)^2;
 L_pda_m      = 5e-3;  % 5 mm assumed PDA length
 R_pda_HP_SI  = (128 * params_base.mu_blood_Pa_s * L_pda_m) / (pi * D_pda_m^4);

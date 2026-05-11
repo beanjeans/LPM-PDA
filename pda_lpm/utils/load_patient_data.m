@@ -77,7 +77,7 @@ clinical.P_ao_dia_mmHg      = row.SDAP(1);               % [mmHg] — diastolic
 clinical.P_ao_mean_mmHg     = row.MAP(1);                 % [mmHg] — mean arterial pressure
 
 % Anatomical diameters (stored in mm; converted to m in physics functions)
-clinical.D_shunt_pda_mm     = row.DPDA(1);               % [mm]
+clinical.D_shunt_pda_cm     = row.DPDA(1);               % [cm]
 clinical.D_coa_mm           = row.DCoA(1);               % [mm] — for reference only
 clinical.D_aao_mm           = row.DAAo(1);               % [mm] — ascending aorta
 clinical.D_dta_mm           = row.DDTA(1);               % [mm] — descending thoracic aorta
@@ -124,8 +124,8 @@ fprintf('  HR: %d bpm  |  SV: %.2f mL  |  CO: %.2f L/min\n', ...
     clinical.HR_bpm, clinical.SV_mL, clinical.CO_Lmin);
 fprintf('  MAP: %.1f mmHg  |  Sys/Dia: %d/%d mmHg\n', ...
     clinical.P_ao_mean_mmHg, clinical.P_ao_sys_mmHg, clinical.P_ao_dia_mmHg);
-fprintf('  PDA diameter: %.2f mm  |  PDA direction: %d  |  PDA dP: %.1f mmHg\n', ...
-    clinical.D_shunt_pda_mm, clinical.pda_direction, clinical.dP_pda_mmHg);
+fprintf('  PDA diameter: %.2f cm  |  PDA direction: %d  |  PDA dP: %.1f mmHg\n', ...
+    clinical.D_shunt_pda_cm, clinical.pda_direction, clinical.dP_pda_mmHg);
 fprintf('  Estimated PA pressure: %.1f mmHg\n\n', clinical.P_pa_est_mmHg);
 
 end
