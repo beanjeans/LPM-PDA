@@ -44,16 +44,7 @@ function params = default_parameters(BW_neo_kg)
 % VERSION:  2.0  — allometric scaling replaces flat multipliers
 % -----------------------------------------------------------------------
 
-%% -----------------------------------------------------------------------
-%  Handle optional arguments
-% -----------------------------------------------------------------------
-if nargin < 1 || isempty(BW_neo_kg)
-    BW_neo_kg = 1.237;   % [kg] — 29-week preterm reference patient
-end
-
 BW_ADULT_KG = 70;        % [kg] — Ortiz-Rangel adult reference body weight [OR2022]
-
-fprintf('\n=== DEFAULT_PARAMETERS: Allometric scaling (BW=%.3f kg) ===\n', BW_neo_kg);
 
 %% -----------------------------------------------------------------------
 %  STATE VECTOR INDEX STRUCT
@@ -220,7 +211,5 @@ X0(idx.P_sys)       = 42;   % [mmHg] — systemic venous pressure seed
 X0(idx.Q_shunt_pda) =  0;   % [mL/s] — initial PDA shunt flow
 
 params.X0 = X0;
-
-fprintf('=== DEFAULT_PARAMETERS: Setup complete ===\n\n');
 
 end

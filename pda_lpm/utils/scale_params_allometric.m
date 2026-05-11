@@ -79,7 +79,7 @@ params_neo = params_adult;   % Deep copy; only scaled fields will change
 %% -----------------------------------------------------------------------
 %  Allometric ratio (dimensionless)
 % -----------------------------------------------------------------------
-bw_ratio = BW_neo_kg / BW_adult_kg;   % e.g. 1.237/70 ≈ 0.01767
+bw_ratio = BW_neo_kg / BW_adult_kg;
 
 fprintf('SCALE_PARAMS_ALLOMETRIC: BW ratio = %.4f (%.3f kg / %.1f kg)\n', ...
     bw_ratio, BW_neo_kg, BW_adult_kg);
