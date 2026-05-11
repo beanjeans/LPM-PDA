@@ -91,7 +91,7 @@ params.R_systemic = clinical.P_ao_mean_mmHg / clinical.CO_mLs;  % [mmHg·s/mL]
 %
 %  Reference: Hagen-Poiseuille [HP]; [P&F2000] §3.2
 % -----------------------------------------------------------------------
-D_pda_m      = clinical.D_shunt_pda_cm * uc.cm_to_m;   % [cm] → [m]
+D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;   % [mm] → [m]
 A_pda_m2     = pi * (D_pda_m / 2)^2;                   % [m²]
 L_pda_m      = 5e-3;                                    % [m] — 5 mm assumed length
 
@@ -121,8 +121,8 @@ R_pda_chosen = min(R_pda_HP, R_pda_Doppler);
 % Clamp to physically meaningful range
 params.R_shunt_pda = max(0.005, min(20, R_pda_chosen));  % [mmHg·s/mL]
 
-fprintf('  PDA R_shunt (HP):      %.4f mmHg·s/mL  (D=%.2f cm, L=5 mm)\n', ...
-    R_pda_HP, clinical.D_shunt_pda_cm);
+fprintf('  PDA R_shunt (HP):      %.4f mmHg·s/mL  (D=%.2f mm, L=5 mm)\n', ...
+    R_pda_HP, clinical.D_shunt_pda_mm);
 fprintf('  PDA R_shunt (Doppler): %.4f mmHg·s/mL  (Q_est=%.2f mL/s)\n', ...
     R_pda_Doppler, Q_pda_vel_mLs);
 fprintf('  PDA R_shunt (chosen):  %.4f mmHg·s/mL  [lower of HP/Doppler]\n', ...
