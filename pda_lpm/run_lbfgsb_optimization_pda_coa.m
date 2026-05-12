@@ -70,8 +70,6 @@ patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 %  These are the influential parameters from Sobol GSA.
 %  Comment out any parameter you want to fix to its baseline value.
 opt_param_names = {
-    'R_systemic'      % Total systemic vascular resistance  [mmHg·s/mL]
-    'C_sys'           % Systemic venous compliance          [mL/mmHg]
     'Emax_lv'         % LV peak elastance                   [mmHg/mL]
     'stenosis_pct'    % CoA stenosis severity               [%]
 };
@@ -81,8 +79,6 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    1.0,     20.0    % R_systemic  [mmHg·s/mL]
-    0.05,    0.60    % C_sys       [mL/mmHg]
     0.5,     6.0     % Emax_lv     [mmHg/mL]
     5.0,     99.0    % stenosis_pct [%]
 ];
