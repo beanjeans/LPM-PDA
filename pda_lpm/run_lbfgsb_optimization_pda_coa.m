@@ -80,10 +80,12 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     25.0    % Emax_lv     [mmHg/mL]  — ceiling raised to match allometric range
+    0.5,     25.0    % Emax_lv     [mmHg/mL]  — consistent with allometric ceiling
     5.0,     99.0    % stenosis_pct [%]
-    0.00010, 0.00500 % C_ao        [mL/mmHg]  — raised ceiling; optimizer was hitting 0.002
+    0.00010, 0.00500 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
 ];
+% R_shunt_pda is NOT optimized — GSA shows it is not a significant parameter.
+% It is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
 
 %% A4. Objective weights
 %  Higher weight = this target is more important to match.
