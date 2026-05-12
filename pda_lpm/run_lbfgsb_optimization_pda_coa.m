@@ -82,7 +82,7 @@ opt_bounds = [
 %   Lower    Upper
     0.5,     25.0    % Emax_lv     [mmHg/mL]  — ceiling raised to match allometric range
     5.0,     99.0    % stenosis_pct [%]
-    0.00010, 0.00200 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
+    0.00010, 0.00500 % C_ao        [mL/mmHg]  — raised ceiling; optimizer was hitting 0.002
 ];
 
 %% A4. Objective weights
@@ -197,6 +197,21 @@ params_base.Ts1       = 0.3  * sqrt(params_base.T_cardiac);
 params_base.Ts2       = 0.45 * sqrt(params_base.T_cardiac);
 params_base.R_systemic = clinical.P_ao_mean_mmHg / clinical.CO_mLs;
 
+% 2b. Pulmonary vascular resistance — clinical override
+% Allometric b=-1.00 gives R_pa ≈ 3.55 for 987g; clinical P_pa implies ~0.21.
+% Assume Qp/Qs ≈ 1.5 for significant L→R PDA (Rudolph 2001).
+Q_pul_est_mLs         = clinical.CO_mLs * 1.5;
+P_pv_est_mmHg         = max(clinical.P_pa_est_mmHg - 5, 3);
+params_base.R_pa       = max(0.05, min(2.0, ...
+    (clinical.P_pa_est_mmHg - P_pv_est_mmHg) / Q_pul_est_mLs));
+params_base.R_pv_veins = params_base.R_pa;
+
+% 2c. Systemic venous compliance — clinical override
+% Allometric gives C_sys ≈ 0.005 mL/mmHg — starves LV preload (SV ≈ 1.5 mL).
+% Clinical estimate: C_sys ≈ SV / (MAP - P_ra_ref),  P_ra_ref = 4 mmHg.
+C_sys_clinical          = clinical.SV_mL / max(clinical.P_ao_mean_mmHg - 4, 1);
+params_base.C_sys       = max(0.05, min(0.5, C_sys_clinical));
+
 P_lv_target    = clinical.P_ao_mean_mmHg * 1.30;
 params_base.Emax_lv = max(3.0, min(20.0, P_lv_target / clinical.SV_mL));
 params_base.Emin_lv = params_base.Emax_lv * 0.05;
@@ -214,20 +229,23 @@ params_base.P_pa_target_mmHg = clinical.P_pa_est_mmHg;
 params_base.X0(params_base.idx.P_ao)  = clinical.P_ao_mean_mmHg;
 params_base.X0(params_base.idx.P_sys) = clinical.P_ao_mean_mmHg;
 params_base.X0(params_base.idx.P_pa)  = clinical.P_pa_est_mmHg;
-params_base.X0(params_base.idx.P_pv)  = max(clinical.P_pa_est_mmHg - 5, 3);
-params_base.X0(params_base.idx.P_la)  = max(clinical.P_pa_est_mmHg - 7, 3);
+params_base.X0(params_base.idx.P_pv)  = P_pv_est_mmHg;
+params_base.X0(params_base.idx.P_la)  = max(P_pv_est_mmHg - 1, 2);
 
-fprintf('  R_systemic (baseline): %.4f mmHg·s/mL\n', params_base.R_systemic);
-fprintf('  Emax_lv    (baseline): %.4f mmHg/mL\n',   params_base.Emax_lv);
-fprintf('  C_sys      (baseline): %.4f mL/mmHg\n',   params_base.C_sys);
-fprintf('  C_ao       (baseline): %.6f mL/mmHg\n',   params_base.C_ao);
+fprintf('  R_systemic (baseline):       %.4f mmHg·s/mL\n', params_base.R_systemic);
+fprintf('  R_pa       (clin override):  %.4f mmHg·s/mL  (allometric: %.4f)\n', ...
+    params_base.R_pa, params_default.R_pa);
+fprintf('  C_sys      (clin override):  %.4f mL/mmHg    (allometric: %.4f)\n', ...
+    params_base.C_sys, params_default.C_sys);
+fprintf('  C_ao       (baseline):       %.6f mL/mmHg\n',   params_base.C_ao);
+fprintf('  Emax_lv    (baseline):       %.4f mmHg/mL\n\n', params_base.Emax_lv);
 
-% Fix 3 — Diagnostic: verify R_shunt_pda is physiologically meaningful
+% Diagnostic: verify R_shunt_pda is physiologically meaningful
 Q_pda_check = clinical.dP_pda_mmHg / params_base.R_shunt_pda;
-fprintf('  R_shunt_pda (computed): %.4f mmHg·s/mL\n', params_base.R_shunt_pda);
+fprintf('  R_shunt_pda (Doppler): %.4f mmHg·s/mL\n', params_base.R_shunt_pda);
 fprintf('    D_PDA=%.2f mm | v_PDA=%.2f m/s | dP_PDA=%.1f mmHg\n', ...
     clinical.D_shunt_pda_mm, clinical.v_pda_ms, clinical.dP_pda_mmHg);
-fprintf('    Expected Q_PDA = dP/R = %.2f mL/s  (expected ~%.1f mL/s from Doppler)\n\n', ...
+fprintf('    Q_PDA check: dP/R = %.2f mL/s  |  Doppler A×v = %.2f mL/s\n\n', ...
     Q_pda_check, A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs);
 
 % =========================================================================

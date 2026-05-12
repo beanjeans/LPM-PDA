@@ -8,10 +8,13 @@ function params = build_patient_params(clinical, params_default)
 % CALIBRATION PIPELINE:
 %   1. Cardiac timing from patient HR
 %   2. R_systemic = MAP / CO  (NOT allometrically scaled; clinical data)
-%   3. R_shunt_pda:
-%      a. First allometric estimate: b = −1.33 (set in default_parameters)
-%      b. OVERRIDDEN by Hagen-Poiseuille from clinical D_pda and v_pda,
-%         guaranteeing Qp/Qs > 1.0 for L→R PDA shunt
+%   2b. R_pa, R_pv_veins = clinical pulmonary pressure override
+%       (allometric b=-1.00 gives 3.55 mmHg·s/mL for 987g; clinical
+%        P_pa implies <0.3 mmHg·s/mL for L→R PDA patients)
+%   2c. C_sys = SV-based clinical override
+%       (allometric gives 0.005 mL/mmHg; starvation of LV preload;
+%        clinical SV/dP gives ~0.18 mL/mmHg)
+%   3. R_shunt_pda: Doppler-only (Hagen-Poiseuille discarded)
 %   4. Ventricular elastance calibration from clinical SV and MAP
 %   5. Unstressed volumes scaled to patient weight
 %   6. Initial conditions seeded from clinical pressures
@@ -72,25 +75,49 @@ params.Ts2       = 0.45 * sqrt(params.T_cardiac); % [s]
 params.R_systemic = clinical.P_ao_mean_mmHg / clinical.CO_mLs;  % [mmHg·s/mL]
 
 %% -----------------------------------------------------------------------
-%  STEP 3: PDA Shunt Resistance — Hagen-Poiseuille override
+%  STEP 2b: Pulmonary Vascular Resistance — clinical override
+%  Allometric b = -1.00 gives R_pa ≈ 3.55 mmHg·s/mL for a 987g neonate,
+%  which is 10× too high. For L→R PDA, the pulmonary circuit is actually
+%  a LOW-resistance pathway that accepts the shunt flow. The correct R_pa
+%  must be derived from the clinical PA pressure and estimated pulmonary flow.
 %
-%  The allometric initial estimate (b = −1.33, [P&F2000]) stored in
-%  params_default.R_shunt_pda is replaced here with a physics-based
-%  estimate from:
-%    (a) Hagen-Poiseuille viscous resistance of the PDA duct
-%    (b) Cross-checked against Doppler pressure gradient / flow
-%
-%  Why Hagen-Poiseuille is needed:
-%    The allometric seed assumes geometric self-similarity between adult
-%    and neonatal vessels, which does NOT hold for the PDA — a specific
-%    duct with a measured clinical diameter (D_pda_mm) and pressure
-%    gradient (dP_pda_mmHg).  Using geometry ensures Qp/Qs > 1.0.
-%
-%  PDA length assumed = 5 mm (typical patent ductus, short tubular)
-%  per neonatal echocardiography literature [Rudolph 2001].
-%
-%  Reference: Hagen-Poiseuille [HP]; [P&F2000] §3.2
+%  Assumptions:
+%    Qp/Qs ≈ 1.5 for a significant L→R PDA (Rudolph 2001)
+%    P_pv ≈ P_pa - 5 mmHg  (normal pulmonary venous driving pressure)
 % -----------------------------------------------------------------------
+Q_pul_est_mLs         = clinical.CO_mLs * 1.5;
+P_pv_est_mmHg         = max(clinical.P_pa_est_mmHg - 5, 3);
+params.R_pa           = max(0.05, min(2.0, ...
+    (clinical.P_pa_est_mmHg - P_pv_est_mmHg) / Q_pul_est_mLs));
+params.R_pv_veins     = params.R_pa;  % symmetric pulmonary venous resistance
+
+%% -----------------------------------------------------------------------
+%  STEP 2c: Systemic Venous Compliance — clinical override
+%  Allometric b = +1.33 gives C_sys ≈ 0.005 mL/mmHg for a 987g neonate.
+%  This starves the LV of preload, causing SV ≈ 1.5 mL instead of 6 mL.
+%
+%  Clinical estimate: the venous compartment must store at least one
+%  stroke volume above the mean filling pressure.
+%    C_sys ≈ SV / (MAP - P_ra_ref)   with P_ra_ref ≈ 4 mmHg
+% -----------------------------------------------------------------------
+C_sys_clinical    = clinical.SV_mL / max(clinical.P_ao_mean_mmHg - 4, 1);
+params.C_sys      = max(0.05, min(0.5, C_sys_clinical));
+
+fprintf('  R_pa   (clinical override): %.4f mmHg·s/mL  (allometric was %.4f)\n', ...
+    params.R_pa, params_default.R_pa);
+fprintf('  C_sys  (clinical override): %.4f mL/mmHg    (allometric was %.4f)\n\n', ...
+    params.C_sys, params_default.C_sys);
+ -----------------------------------------------------------------------
+%% -----------------------------------------------------------------------
+%  STEP 3: PDA Shunt Resistance — Doppler-only
+%
+%  Uses clinical dP_pda and Doppler velocity directly.
+%  Hagen-Poiseuille discarded: for D=2.2 mm it gives R≈0.26, Q≈107 mL/s
+%  (10× too large), flooding the pulmonary circuit and collapsing DBP.
+%
+%  Reference: Rudolph (2001); clinical Bernoulli echo assessment.
+% -----------------------------------------------------------------------
+
 D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;   % [mm] → [m]
 A_pda_m2     = pi * (D_pda_m / 2)^2;                   % [m²]
 
