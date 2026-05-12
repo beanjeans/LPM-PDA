@@ -203,15 +203,12 @@ params_base.Emin_lv = params_base.Emax_lv * 0.05;
 params_base.Emax_rv = max(1.5, min(12.0, params_base.Emax_lv * 0.5));
 params_base.Emin_rv = params_base.Emax_rv * 0.05;
 
-% Hagen-Poiseuille PDA resistance (matches build_patient_params v2.0)
+% Doppler-derived PDA resistance (Doppler-only; HP discarded — see build_patient_params.m)
 D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;
 A_pda_m2     = pi * (D_pda_m / 2)^2;
-L_pda_m      = 5e-3;  % 5 mm assumed PDA length
-R_pda_HP_SI  = (128 * params_base.mu_blood_Pa_s * L_pda_m) / (pi * D_pda_m^4);
-R_pda_HP     = R_pda_HP_SI * uc.Pa_s_m3_to_mmHg_s_mL;
 Q_pda_vel    = max(A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs, 0.5);
 R_pda_Doppl  = clinical.dP_pda_mmHg / Q_pda_vel;
-params_base.R_shunt_pda = max(0.005, min(20, min(R_pda_HP, R_pda_Doppl)));
+params_base.R_shunt_pda = max(0.5, min(20, R_pda_Doppl));
 params_base.P_pa_target_mmHg = clinical.P_pa_est_mmHg;
 
 params_base.X0(params_base.idx.P_ao)  = clinical.P_ao_mean_mmHg;

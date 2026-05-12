@@ -303,16 +303,12 @@ function params = build_patient_params_silent(clinical, params_default)
     params.Emax_rv  = params.Emax_lv * 0.5;
     params.Emin_rv  = params.Emin_lv;
 
-    % 4. PDA Shunt Resistance — Hagen-Poiseuille + Doppler cross-check
-    %    (mirrors build_patient_params.m v2.0 HP override logic)
-    D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;
-    A_pda_m2     = pi * (D_pda_m / 2)^2;
-    L_pda_m      = 5e-3;  % 5 mm assumed PDA length
-    R_pda_HP_SI  = (128 * params.mu_blood_Pa_s * L_pda_m) / (pi * D_pda_m^4);
-    R_pda_HP     = R_pda_HP_SI * uc.Pa_s_m3_to_mmHg_s_mL;
+    % 4. PDA Shunt Resistance — Doppler-only (HP discarded: produces Q~107 mL/s)
+    D_pda_m       = clinical.D_shunt_pda_mm * uc.mm_to_m;
+    A_pda_m2      = pi * (D_pda_m / 2)^2;
     Q_pda_vel_mLs = max(A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs, 0.5);
     R_pda_Doppler = clinical.dP_pda_mmHg / Q_pda_vel_mLs;
-    params.R_shunt_pda = max(0.005, min(20, min(R_pda_HP, R_pda_Doppler)));
+    params.R_shunt_pda = max(0.5, min(20, R_pda_Doppler));
 
     % 5. PA Pressure Target
     params.P_pa_target_mmHg = clinical.P_pa_est_mmHg;

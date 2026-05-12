@@ -93,40 +93,34 @@ params.R_systemic = clinical.P_ao_mean_mmHg / clinical.CO_mLs;  % [mmHg·s/mL]
 % -----------------------------------------------------------------------
 D_pda_m      = clinical.D_shunt_pda_mm * uc.mm_to_m;   % [mm] → [m]
 A_pda_m2     = pi * (D_pda_m / 2)^2;                   % [m²]
-L_pda_m      = 5e-3;                                    % [m] — 5 mm assumed length
 
-% Hagen-Poiseuille viscous resistance of PDA duct
-R_pda_HP_SI  = (128 * params.mu_blood_Pa_s * L_pda_m) / ...
-               (pi * D_pda_m^4);                         % [Pa·s/m³]
-R_pda_HP     = R_pda_HP_SI * uc.Pa_s_m3_to_mmHg_s_mL;  % → [mmHg·s/mL]
-
-% Doppler-based cross-check: R = dP / Q_estimated
-Q_pda_vel_m3s = A_pda_m2 * clinical.v_pda_ms;           % [m³/s]  (v from CW Doppler)
+% Doppler-derived PDA resistance: R = dP / Q   (Q = A × v from CW Doppler)
+%
+% WHY Doppler-only (not Hagen-Poiseuille):
+%   HP assumes ideal, fully-developed laminar flow in a perfectly straight
+%   tube, which is not valid for the PDA (short, curved, with end-effects).
+%   For D_PDA = 2.2 mm, HP gives R ≈ 0.26 mmHg·s/mL → Q ≈ 107 mL/s,
+%   ten times the Doppler-measured value of ~10 mL/s. This floods the
+%   pulmonary circuit and collapses DBP. The Doppler measurement directly
+%   encodes in-vivo duct geometry and flow regime, making it far superior.
+%
+%   Reference: Rudolph (2001); clinical Bernoulli-based echo assessment.
+Q_pda_vel_m3s = A_pda_m2 * clinical.v_pda_ms;           % [m³/s]
 Q_pda_vel_mLs = Q_pda_vel_m3s * uc.m3s_to_mLs;         % [mL/s]
 
 if Q_pda_vel_mLs < 0.01
-    Q_pda_vel_mLs = 0.5;   % Conservative fallback
+    Q_pda_vel_mLs = 0.5;
     warning('BUILD_PATIENT_PARAMS: Q_pda_vel near zero; using fallback 0.5 mL/s');
 end
 
 R_pda_Doppler = clinical.dP_pda_mmHg / Q_pda_vel_mLs;  % [mmHg·s/mL]
 
-% Select the LOWER of HP and Doppler estimates to ensure sufficient shunt
-% flow (guarantees Qp/Qs > 1.0 for L→R PDA):
-%   - HP tends to underestimate (assumes fully-developed laminar flow)
-%   - Doppler estimate depends on velocity measurement accuracy
-% Using the lower value provides a conservative (larger shunt) estimate.
-R_pda_chosen = min(R_pda_HP, R_pda_Doppler);
+% Clamp: lower bound 0.5 prevents unphysical pulmonary flooding;
+%        upper bound 20 prevents near-closed shunt at baseline.
+params.R_shunt_pda = max(0.5, min(20, R_pda_Doppler));  % [mmHg·s/mL]
 
-% Clamp to physically meaningful range
-params.R_shunt_pda = max(0.005, min(20, R_pda_chosen));  % [mmHg·s/mL]
-
-fprintf('  PDA R_shunt (HP):      %.4f mmHg·s/mL  (D=%.2f mm, L=5 mm)\n', ...
-    R_pda_HP, clinical.D_shunt_pda_mm);
-fprintf('  PDA R_shunt (Doppler): %.4f mmHg·s/mL  (Q_est=%.2f mL/s)\n', ...
-    R_pda_Doppler, Q_pda_vel_mLs);
-fprintf('  PDA R_shunt (chosen):  %.4f mmHg·s/mL  [lower of HP/Doppler]\n', ...
-    params.R_shunt_pda);
+fprintf('  PDA R_shunt (Doppler): %.4f mmHg·s/mL  (Q_est=%.2f mL/s, dP=%.1f mmHg)\n', ...
+    params.R_shunt_pda, Q_pda_vel_mLs, clinical.dP_pda_mmHg);
 
 %% -----------------------------------------------------------------------
 %  STEP 4: Ventricular Elastance Calibration
