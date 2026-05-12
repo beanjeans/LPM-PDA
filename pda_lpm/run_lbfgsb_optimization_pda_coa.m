@@ -72,6 +72,7 @@ patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 opt_param_names = {
     'Emax_lv'         % LV peak elastance                   [mmHg/mL]
     'stenosis_pct'    % CoA stenosis severity               [%]
+    'C_ao'            % Aortic compliance (controls pulse pressure) [mL/mmHg]
 };
 
 %% A3. Parameter bounds  [lower, upper]
@@ -79,8 +80,9 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     6.0     % Emax_lv     [mmHg/mL]
+    0.5,     25.0    % Emax_lv     [mmHg/mL]  — ceiling raised to match allometric range
     5.0,     99.0    % stenosis_pct [%]
+    0.00010, 0.00200 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
 ];
 
 %% A4. Objective weights
@@ -90,6 +92,7 @@ weights.MAP    = 3.0;   % Mean arterial pressure (most reliable clinical target)
 weights.SBP    = 2.0;   % Systolic blood pressure
 weights.DBP    = 1.5;   % Diastolic blood pressure
 weights.SV     = 2.0;   % Stroke volume
+weights.PP     = 2.0;   % Pulse pressure (SBP − DBP) — C_ao observable
 weights.dP_PDA = 1.5;   % PDA pressure gradient (Doppler-derived)
 weights.dP_CoA = 2.5;   % CoA pressure gradient (Doppler-derived, if available)
 
@@ -219,7 +222,16 @@ params_base.X0(params_base.idx.P_la)  = max(clinical.P_pa_est_mmHg - 7, 3);
 
 fprintf('  R_systemic (baseline): %.4f mmHg·s/mL\n', params_base.R_systemic);
 fprintf('  Emax_lv    (baseline): %.4f mmHg/mL\n',   params_base.Emax_lv);
-fprintf('  C_sys      (baseline): %.4f mL/mmHg\n\n', params_base.C_sys);
+fprintf('  C_sys      (baseline): %.4f mL/mmHg\n',   params_base.C_sys);
+fprintf('  C_ao       (baseline): %.6f mL/mmHg\n',   params_base.C_ao);
+
+% Fix 3 — Diagnostic: verify R_shunt_pda is physiologically meaningful
+Q_pda_check = clinical.dP_pda_mmHg / params_base.R_shunt_pda;
+fprintf('  R_shunt_pda (computed): %.4f mmHg·s/mL\n', params_base.R_shunt_pda);
+fprintf('    D_PDA=%.2f mm | v_PDA=%.2f m/s | dP_PDA=%.1f mmHg\n', ...
+    clinical.D_shunt_pda_mm, clinical.v_pda_ms, clinical.dP_pda_mmHg);
+fprintf('    Expected Q_PDA = dP/R = %.2f mL/s  (expected ~%.1f mL/s from Doppler)\n\n', ...
+    Q_pda_check, A_pda_m2 * clinical.v_pda_ms * uc.m3s_to_mLs);
 
 % =========================================================================
 %  STEP 3 — BUILD OPTIMIZATION CONFIG STRUCT

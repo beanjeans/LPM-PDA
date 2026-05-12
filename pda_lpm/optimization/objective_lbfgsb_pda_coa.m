@@ -192,6 +192,18 @@ if w.SV > 0 && clinical.SV_mL > 0
     J = J + w.SV * err_SV^2;
 end
 
+% --- Pulse Pressure (SBP − DBP) --- identifiable via C_ao ---
+% PP = SBP − DBP ≈ SV / C_ao, so this term drives C_ao calibration.
+% Clinical target: from measured SSAP and SDAP.
+if isfield(w, 'PP') && w.PP > 0
+    clin_PP = clinical.P_ao_sys_mmHg - clinical.P_ao_dia_mmHg;
+    sim_PP  = m.P_ao_sys - m.P_ao_dia;
+    if clin_PP > 0
+        err_PP = (sim_PP - clin_PP) / clin_PP;
+        J = J + w.PP * err_PP^2;
+    end
+end
+
 % --- PDA pressure gradient (Doppler-derived reference) ---
 % clinical.dP_pda_mmHg is the Bernoulli-derived PDA gradient from echo
 % Model: pressure difference across the PDA ≈ P_ao_mean − P_pa_mean
@@ -213,6 +225,7 @@ end
 sim_outputs.P_ao_mean        = m.P_ao_mean;
 sim_outputs.P_ao_sys         = m.P_ao_sys;
 sim_outputs.P_ao_dia         = m.P_ao_dia;
+sim_outputs.PP               = m.P_ao_sys - m.P_ao_dia;
 sim_outputs.P_pa_mean        = m.P_pa_mean;
 sim_outputs.SV_lv            = m.SV_lv;
 sim_outputs.CO_Lmin          = m.CO_Lmin;
