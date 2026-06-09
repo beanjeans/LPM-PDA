@@ -107,7 +107,7 @@ fprintf('  R_pa   (clinical override): %.4f mmHg·s/mL  (allometric was %.4f)\n'
     params.R_pa, params_default.R_pa);
 fprintf('  C_sys  (clinical override): %.4f mL/mmHg    (allometric was %.4f)\n\n', ...
     params.C_sys, params_default.C_sys);
- -----------------------------------------------------------------------
+% -----------------------------------------------------------------------
 %% -----------------------------------------------------------------------
 %  STEP 3: PDA Shunt Resistance — Doppler-only
 %
@@ -184,7 +184,7 @@ params.Emin_lv  = params.Emax_lv * 0.05;            % 5% of Emax [Ste1996]
 
 % RV: ~50% of LV Emax in neonates (elevated PVR at birth) — [OR2022]
 params.Emax_rv  = params.Emax_lv * 0.50;            % [mmHg/mL]
-params.Emin_rv  = params.Emin_lv;                   % [mmHg/mL]
+params.Emin_rv  = params.Emin_rv * 0.05;                   % [mmHg/mL]
 
 % Clamp to physiologically plausible neonatal range (as in scale_params_allometric)
 EMAX_LV_MIN = 3.0;   EMAX_LV_MAX = 20.0;   % [mmHg/mL]

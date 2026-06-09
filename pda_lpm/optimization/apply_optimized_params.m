@@ -44,9 +44,9 @@ for k = 1:length(opt_config.param_names)
             params_opt.C_sys = val;
         case 'Emax_lv'
             params_opt.Emax_lv = val;
-            params_opt.Emin_lv = val * 0.05;
-            params_opt.Emax_rv = val * 0.5;
-            params_opt.Emin_rv = params_opt.Emin_lv;
+            params_opt.Emin_lv = val * 0.05;            % 5% of Emax_LV
+            params_opt.Emax_rv = val * 0.5;             % RV ≈ 50% LV
+            params_opt.Emin_rv = params_opt.Emax_rv * 0.05;  % 5% of Emax_RV
         case 'stenosis_pct'
             stenosis_opt = val;
         case 'coa_length_mm'
@@ -65,6 +65,9 @@ end
 params_opt.R_systemic  = max(0.01, params_opt.R_systemic);
 params_opt.C_sys       = max(1e-4, params_opt.C_sys);
 params_opt.Emax_lv     = max(0.01, params_opt.Emax_lv);
+params_opt.Emin_lv     = max(1e-4, params_opt.Emin_lv);
+params_opt.Emax_rv     = max(0.01, params_opt.Emax_rv);
+params_opt.Emin_rv     = max(1e-4, params_opt.Emin_rv);
 params_opt.C_ao        = max(1e-4, params_opt.C_ao);
 params_opt.R_pa        = max(0.001, params_opt.R_pa);
 params_opt.R_shunt_pda = max(0.01, params_opt.R_shunt_pda);

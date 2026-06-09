@@ -68,9 +68,9 @@ param_defs = {
     'R_shunt_pda',       0.5,      20.0   % [mmHg·s/mL] PDA resistance
     'R_systemic',        1.0,      15.0   % [mmHg·s/mL] Total SVR
     'R_pa',              0.01,     0.20   % [mmHg·s/mL] Pulmonary resistance
-    'C_ao',              0.005,    0.05   % [mL/mmHg]   Aortic compliance
+    'C_ao',              0.0001,   0.0020   % [mL/mmHg]   Aortic compliance
     'C_sys',             0.05,     0.50   % [mL/mmHg]   Systemic compliance
-    'Emax_lv',           0.5,      5.0    % [mmHg/mL]   LV elastance
+    'Emax_lv',           0.5,      25.0    % [mmHg/mL]   LV elastance
     'stenosis_pct',      10,       95     % [%]         CoA stenosis
     'coa_length_mm',     1,        15     % [mm]        CoA length
 };

@@ -74,6 +74,8 @@ n_boot = 1000;
 S1_ci = zeros(D, n_outputs, 2);
 ST_ci = zeros(D, n_outputs, 2);
 
+n_valid_per_output = zeros(1, n_outputs);  % Track valid sample count per output
+
 for q = 1:n_outputs
 
     y_A = Y_A(:, q);
@@ -91,6 +93,7 @@ for q = 1:n_outputs
         valid_mask = valid_mask & ~isnan(y_ABi_q(:, i));
     end
     n_valid = sum(valid_mask);
+    n_valid_per_output(q) = n_valid;   % Record for summary
 
     if n_valid < 0.5 * N
         warning('COMPUTE_SOBOL_INDICES: Output %d has %d/%d valid samples (<50%%). Results may be unreliable.', ...
@@ -128,10 +131,11 @@ for q = 1:n_outputs
     for i = 1:D
         yABi = yAB(:, i);
 
-        % --- First-order index (Saltelli 2010, Eq. b) ---
-        % V_i = (1/N) * sum( f(A) * (f(AB_i) - f(B)) )
-        V_first = (1/Nv) * sum(yA .* (yABi - yB));
-        S1(i, q) = V_first / VarY;
+         % --- First-order index (Jansen 1999 estimator — matches docstring) ---
+        % V_i = (1/2N) * sum( (f(B) - f(AB_i))^2 )
+        % S1_i = 1 - V_i / Var(Y)
+        V_first = (1/(2*Nv)) * sum((yB - yABi).^2);
+        S1(i, q) = 1 - (V_first / VarY);
 
         % --- Total-order index (Jansen 1999 estimator) ---
         % VT_i = (1/2N) * sum( (f(A) - f(AB_i))^2 )
@@ -181,7 +185,8 @@ end
 
 %% 3. Display summary
 fprintf('\n=== SOBOL INDICES COMPUTED ===\n');
-fprintf('  Valid samples used:  %d / %d (per output, may vary)\n', n_valid, N);
+fprintf('  Valid samples (per output): min=%d  max=%d  (of N=%d total)\n', ...
+    min(n_valid_per_output), max(n_valid_per_output), N);
 fprintf('  Bootstrap samples:   %d (95%% CI)\n', n_boot);
 fprintf('\n');
 

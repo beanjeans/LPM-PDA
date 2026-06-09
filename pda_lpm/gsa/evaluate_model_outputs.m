@@ -36,10 +36,9 @@ function Y = evaluate_model_outputs(X_all, param_names, csv_path, patient_idx)
 %        Col 4: severity_code         [1/2/3]
 %
 % NOTES:
-%   - This function calls existing model functions but does NOT modify them.
-%   - Suppresses console output from called functions for cleaner logs.
-%   - Uses n_warmup=6, n_report=2 (reduced from main script's 8+2 for
-%     speed — validated to give <0.5 mmHg difference in peak P_ao).
+%   - Uses n_warmup=8, n_report=2, consistent with main_pda_lpm.m and
+%     run_lbfgsb_optimization_pda_coa.m to ensure indices are computed
+%     on the same steady-state window as the final simulation.
 %
 % AUTHOR:   GSA Extension — Cardiovascular Simulation Team
 % DATE:     2025-01-01
@@ -68,7 +67,7 @@ params_base    = build_patient_params_silent(clinical, params_default);
 name_map = containers.Map(param_names, 1:length(param_names));
 
 %% 4. Solver settings (reduced warm-up for speed)
-n_warmup = 6;     % Warm-up cycles (sufficient for steady-state per validation)
+n_warmup = 8;     % Warm-up cycles (sufficient for steady-state per validation)
 n_report = 2;     % Reporting cycles
 
 %% 5. Evaluate model for each sample
@@ -106,10 +105,12 @@ for k = 1:n_total
             params_k.C_sys = x_k(name_map('C_sys'));
         end
 
-        % Override LV elastance (and derived Emin)
+        % Override LV elastance and all linked RV quantities
         if name_map.isKey('Emax_lv')
             params_k.Emax_lv = x_k(name_map('Emax_lv'));
-            params_k.Emin_lv = params_k.Emax_lv * 0.05;  % Maintain 5% ratio
+            params_k.Emin_lv = params_k.Emax_lv * 0.05;   % 5% of Emax_LV
+            params_k.Emax_rv = params_k.Emax_lv * 0.5;    % RV ≈ 50% LV (neonatal ref)
+            params_k.Emin_rv = params_k.Emax_rv * 0.05;   % 5% of Emax_RV
         end
 
         % --- 5b. Get stenosis and length for CoA ---
@@ -162,21 +163,20 @@ for k = 1:n_total
         % --- 5f. Compute clinical indices (calls existing function) ---
         evalc_out2 = evalc('indices_k = compute_clinical_indices(t_sol, X_sol, params_coa_k, clinical, ''GSA'');');
 
-        % --- 5g. Extract GSA outputs ---------------------------------
+        % --- 5g. Extract GSA outputs (4 outputs only — matches Y allocation) ---
         m = indices_k.model;
 
         Y(k, 1) = m.DeltaP_coa_peak;
         Y(k, 2) = m.DeltaP_coa_mean_sys;
         Y(k, 3) = m.Q_coa_fraction;
 
-        % Encode severity as numeric
+        % Encode severity as numeric (col 4)
         switch lower(m.predicted_CoA_severity)
             case 'mild',     Y(k, 4) = 1;
             case 'moderate', Y(k, 4) = 2;
             case 'severe',   Y(k, 4) = 3;
             otherwise,       Y(k, 4) = NaN;
         end
-
     catch ME
         % ODE solver failed or other error → leave NaN
         if mod(k, 100) == 0

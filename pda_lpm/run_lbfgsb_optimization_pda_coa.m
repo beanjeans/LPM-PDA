@@ -15,8 +15,9 @@
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set):
-%   C_sys, R_systemic, Emax_lv, stenosis_pct, coa_length_mm
-%
+%   Emax_lv, stenosis_pct, C_ao
+%   (C_sys, R_systemic, coa_length_mm excluded — low ST or fixed geometry)
+%   To change, edit Section A2 opt_param_names and A3 opt_bounds.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
 %   2. Build baseline model parameters
@@ -82,7 +83,7 @@ opt_bounds = [
 %   Lower    Upper
     0.5,     25.0    % Emax_lv     [mmHg/mL]  — consistent with allometric ceiling
     5.0,     99.0    % stenosis_pct [%]
-    0.00010, 0.00500 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
+    0.00010, 0.002000 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
 ];
 % R_shunt_pda is NOT optimized — GSA shows it is not a significant parameter.
 % It is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
@@ -90,12 +91,12 @@ opt_bounds = [
 %% A4. Objective weights
 %  Higher weight = this target is more important to match.
 %  Set weight to 0 to exclude a target from the objective.
-weights.MAP    = 3.0;   % Mean arterial pressure (most reliable clinical target)
+weights.MAP    = 5.0;   % Mean arterial pressure (most reliable clinical target)
 weights.SBP    = 2.0;   % Systolic blood pressure
 weights.DBP    = 1.5;   % Diastolic blood pressure
-weights.SV     = 2.0;   % Stroke volume
+weights.SV     = 4.0;   % Stroke volume
 weights.PP     = 2.0;   % Pulse pressure (SBP − DBP) — C_ao observable
-weights.dP_PDA = 1.5;   % PDA pressure gradient (Doppler-derived)
+weights.dP_PDA = 3.0;   % PDA pressure gradient (Doppler-derived)
 weights.dP_CoA = 2.5;   % CoA pressure gradient (Doppler-derived, if available)
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
@@ -103,7 +104,7 @@ default_stenosis_pct   = 50.0;   % [%]  — starting geometry
 default_coa_length_mm  =  5.0;   % [mm] — mid-range scenario
 
 %% A6. Solver settings
-n_warmup = 6;     % ODE warm-up cycles (validated: steady-state by cycle 6)
+n_warmup = 8;     % ODE warm-up cycles (validated: steady-state by cycle 6)
 n_report = 2;     % ODE reporting cycles
 penalty  = 1e6;   % Objective value returned on ODE/build failure
 
@@ -114,13 +115,15 @@ penalty  = 1e6;   % Objective value returned on ODE/build failure
 % Valid fmincon algorithms: 'interior-point', 'sqp', 'active-set',
 %                           'trust-region-reflective'
 fmincon_opts = optimoptions('fmincon', ...
-    'Algorithm',              'interior-point', ... % L-BFGS-B equivalent
+    'Algorithm',              'interior-point', ...
     'Display',                'iter', ...
     'MaxIterations',          200, ...
     'MaxFunctionEvaluations', 2000, ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
-    'FiniteDifferenceType',   'central', ...        % More accurate gradient
+    'FiniteDifferenceType',   'central', ...
+    'TypicalX',               [5.0, 50.0, 0.0005], ... % ← ADD: representative scale per param
+    'FiniteDifferenceStepSize', 1e-4, ...               % ← ADD: relative step for mixed scales
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
