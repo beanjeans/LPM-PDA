@@ -107,7 +107,7 @@ fprintf('  R_pa   (clinical override): %.4f mmHg·s/mL  (allometric was %.4f)\n'
     params.R_pa, params_default.R_pa);
 fprintf('  C_sys  (clinical override): %.4f mL/mmHg    (allometric was %.4f)\n\n', ...
     params.C_sys, params_default.C_sys);
- -----------------------------------------------------------------------
+% -----------------------------------------------------------------------
 %% -----------------------------------------------------------------------
 %  STEP 3: PDA Shunt Resistance — Doppler-only
 %
