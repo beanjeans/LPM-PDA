@@ -76,6 +76,8 @@ ST_ci = zeros(D, n_outputs, 2);
 
 n_valid_per_output = zeros(1, n_outputs);  % Track valid sample count per output
 
+rng(12345, 'twister');  % Fixed seed — set once so bootstrap is reproducible across all outputs
+
 for q = 1:n_outputs
 
     y_A = Y_A(:, q);
@@ -131,11 +133,11 @@ for q = 1:n_outputs
     for i = 1:D
         yABi = yAB(:, i);
 
-         % --- First-order index (Jansen 1999 estimator — matches docstring) ---
-        % V_i = (1/2N) * sum( (f(B) - f(AB_i))^2 )
-        % S1_i = 1 - V_i / Var(Y)
-        V_first = (1/(2*Nv)) * sum((yB - yABi).^2);
-        S1(i, q) = 1 - (V_first / VarY);
+        % --- First-order index (Saltelli 2010 estimator, Eq. b) ---
+        % V_i = (1/N) * sum( f(A) * (f(AB_i) - f(B)) )
+        % S1_i = V_i / Var(Y)
+        V_first = (1/Nv) * sum(yA .* (yABi - yB));
+        S1(i, q) = V_first / VarY;
 
         % --- Total-order index (Jansen 1999 estimator) ---
         % VT_i = (1/2N) * sum( (f(A) - f(AB_i))^2 )
@@ -144,7 +146,6 @@ for q = 1:n_outputs
     end
 
     % --- Bootstrap confidence intervals ---
-    rng(12345, 'twister');  % Reproducible bootstrap
     S1_boot = zeros(D, n_boot);
     ST_boot = zeros(D, n_boot);
 
