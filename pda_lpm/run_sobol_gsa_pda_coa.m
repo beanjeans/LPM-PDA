@@ -339,7 +339,9 @@ fig3 = figure('Name', 'Sobol S1 vs ST — Mean Systolic Gradient', ...
 
 q_main = 2;  % DeltaP_coa_mean_sys (primary clinical output)
 
-[~, rank_idx] = sort(ST(:, q_main), 'descend');
+% Use rank_order from Step 5 so plot and printed ranking are consistent
+% (both rank by mean ST across the three continuous outputs)
+rank_idx = rank_order;
 S1_ranked = S1(rank_idx, q_main);
 ST_ranked = ST(rank_idx, q_main);
 
