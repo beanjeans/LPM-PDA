@@ -204,7 +204,8 @@ for q = 1:n_outputs
 end
 
 T_indices = cell2table(rows_cell, ...
-    'VariableNames', {'Output', 'Parameter', 'S1', 'S1_CI_lower', 'S1_CI_upper', ...
+    'VariableNames', {'Output', 'Param
+ter', 'S1', 'S1_CI_lower', 'S1_CI_upper', ...
                       'ST', 'ST_CI_lower', 'ST_CI_upper'});
 
 csv_indices_path = fullfile(results_dir, 'sobol_indices.csv');
