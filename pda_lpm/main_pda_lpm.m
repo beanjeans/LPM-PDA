@@ -212,7 +212,69 @@ fprintf('%s\n', repmat('=', 1, 76));
 fprintf('  Clinical reference:  MAP = %.1f mmHg | SV = %.2f mL\n', ...
     clinical.P_ao_mean_mmHg, clinical.SV_mL);
 fprintf('%s\n', repmat('=', 1, 76));
+%% =========================================================================
+%  STEP 9 — SAVE RESULTS TO FILE
+% =========================================================================
+fprintf('STEP 9: Saving LPM results...\n');
+
+% Create output directory
+results_dir_lpm = fullfile('results', 'lpm');
+if ~exist(results_dir_lpm, 'dir')
+    mkdir(results_dir_lpm);
+end
+
+patient_id_safe = strrep(clinical.patient_id, ' ', '_');
+
+% --- 9a. Save full workspace (waveforms + indices for all scenarios) ---
+mat_path_lpm = fullfile(results_dir_lpm, sprintf('lpm_results_%s.mat', patient_id_safe));
+save(mat_path_lpm, ...
+    't_sol_pda', 'X_sol_pda', 'results_pda', ...
+    'coa_scenarios', 'params_pda', 'clinical');
+fprintf('  Saved: %s\n', mat_path_lpm);
+
+% --- 9b. Save CoA severity summary as CSV ---
+rows_cell = {};
+for s_idx = 1:length(coa_scenarios)
+    sc = coa_scenarios{s_idx};
+    mc = sc.indices.model;
+    rows_cell{end+1, 1} = clinical.patient_id;       %#ok<SAGROW>
+    rows_cell{end, 2}   = sc.label;
+    rows_cell{end, 3}   = mc.stenosis_pct;
+    rows_cell{end, 4}   = mc.coa_length_mm;
+    rows_cell{end, 5}   = mc.coa_length_category;
+    rows_cell{end, 6}   = mc.DeltaP_coa_peak;
+    rows_cell{end, 7}   = mc.DeltaP_coa_mean_sys;
+    rows_cell{end, 8}   = mc.Q_coa_fraction;
+    rows_cell{end, 9}   = mc.predicted_CoA_severity;
+    rows_cell{end, 10}  = mc.P_ao_mean;
+    rows_cell{end, 11}  = mc.CO_Lmin;
+    rows_cell{end, 12}  = mc.SV_lv;
+    rows_cell{end, 13}  = mc.EF_lv * 100;
+    rows_cell{end, 14}  = mc.Qp_Qs;
+end
+
+T_lpm = cell2table(rows_cell, 'VariableNames', { ...
+    'PatientID', 'Scenario', 'Stenosis_pct', 'Length_mm', 'Length_category', ...
+    'DeltaP_peak_mmHg', 'DeltaP_mean_sys_mmHg', 'Q_coa_fraction', ...
+    'Predicted_severity', 'MAP_mmHg', 'CO_Lmin', 'SV_mL', 'EF_pct', 'Qp_Qs'});
+
+csv_path_lpm = fullfile(results_dir_lpm, sprintf('lpm_coa_summary_%s.csv', patient_id_safe));
+writetable(T_lpm, csv_path_lpm);
+fprintf('  Saved: %s\n', csv_path_lpm);
+
+% --- 9c. Export all open figures as PNG ---
+fig_handles = findall(0, 'Type', 'figure');
+for f = 1:length(fig_handles)
+    fig_name = get(fig_handles(f), 'Name');
+    if isempty(fig_name)
+        fig_name = sprintf('figure_%d', fig_handles(f).Number);
+    end
+    fig_name_safe = regexprep(fig_name, '[^a-zA-Z0-9_\-]', '_');
+    fig_path = fullfile(results_dir_lpm, sprintf('%s_%s.png', patient_id_safe, fig_name_safe));
+    exportgraphics(fig_handles(f), fig_path, 'Resolution', 300);
+    fprintf('  Saved: %s\n', fig_path);
+end
+
 fprintf('\nSimulation complete.\n');
-fprintf('Figures: see on-screen.\n');
-fprintf('To export figures as PDF: set MATLAB export to vector PDF.\n');
+fprintf('Results saved to: %s/\n', results_dir_lpm);;
 
