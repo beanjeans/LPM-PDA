@@ -8,9 +8,7 @@
 %   which model parameters most strongly influence the clinical CoA outputs:
 %     1. ΔP_CoA_peak          — peak CoA pressure gradient         [mmHg]
 %     2. ΔP_CoA_mean_systolic — mean systolic gradient             [mmHg]
-%     3. Q_coa / Q_total      — CoA flow fra
-% 11
-% ction                  [0–1]
+%     3. Q_coa / Q_total      — CoA flow fraction                  [0–1]
 %     4. predicted_CoA_severity — clinical classification (1/2/3)
 %
 % WORKFLOW:
@@ -204,8 +202,7 @@ for q = 1:n_outputs
 end
 
 T_indices = cell2table(rows_cell, ...
-    'VariableNames', {'Output', 'Param
-ter', 'S1', 'S1_CI_lower', 'S1_CI_upper', ...
+    'VariableNames', {'Output', 'Parameter', 'S1', 'S1_CI_lower', 'S1_CI_upper', ...
                       'ST', 'ST_CI_lower', 'ST_CI_upper'});
 
 csv_indices_path = fullfile(results_dir, 'sobol_indices.csv');

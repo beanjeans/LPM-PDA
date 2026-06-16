@@ -12,8 +12,9 @@ function [S1, ST, S1_ci, ST_ci] = compute_sobol_indices(Y, sample_info)
 %          = 1 - V_i / Var(Y)
 %     where V_i = (1/2N) Σ (f(B)_j - f(AB_i)_j)²
 %
-%   This is equivalent to the Saltelli (2010) Eq. (b):
-%     V_i = (1/N) Σ f(A)_j × [f(AB_i)_j - f(B)_j]
+%   This is equivalent to the Saltelli (2010) Eq. (b), using the convention
+%   that AB_i = A with column i taken from B (see sample_sobol_params.m):
+%     V_i = (1/N) Σ f(B)_j × [f(AB_i)_j - f(A)_j]
 %     S1_i = V_i / Var(Y)
 %
 %   Total-order (ST_i) — Jansen (1999) estimator:
@@ -134,9 +135,11 @@ for q = 1:n_outputs
         yABi = yAB(:, i);
 
         % --- First-order index (Saltelli 2010 estimator, Eq. b) ---
-        % V_i = (1/N) * sum( f(A) * (f(AB_i) - f(B)) )
-        % S1_i = V_i / Var(Y)
-        V_first = (1/Nv) * sum(yA .* (yABi - yB));
+        % AB_i = A with column i taken from B (see sample_sobol_params.m).
+        % For this convention the correct pairing is:
+        %   V_i = (1/N) * sum( f(B) * (f(AB_i) - f(A)) )
+        %   S1_i = V_i / Var(Y)
+        V_first = (1/Nv) * sum(yB .* (yABi - yA));
         S1(i, q) = V_first / VarY;
 
         % --- Total-order index (Jansen 1999 estimator) ---
@@ -167,7 +170,7 @@ for q = 1:n_outputs
         for i = 1:D
             yABi_b = yAB(boot_idx, i);
 
-            V_first_b = (1/Nv) * sum(yA_b .* (yABi_b - yB_b));
+            V_first_b = (1/Nv) * sum(yB_b .* (yABi_b - yA_b));
             S1_boot(i, b) = V_first_b / VarY_b;
 
             V_total_b = (1/(2*Nv)) * sum((yA_b - yABi_b).^2);
