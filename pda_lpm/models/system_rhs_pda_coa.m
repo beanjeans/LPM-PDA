@@ -100,10 +100,11 @@ Q_coa       = X(idx.Q_coa);          % [mL/s] — CoA segment flow
 [Q_tv, Q_pv_valve, Q_mv, Q_av] = valve_model(P_ra, P_rv, P_pa, P_la, P_lv, P_ao, params);
 
 %% 3. Systemic flows
-% Upper body (proximal, drains to systemic veins from proximal aorta)
-Q_sys_upper = (P_ao - P_sys) / params.R_systemic;            % [mL/s]
-% Lower body (distal, drains from distal aorta post-CoA)
-Q_sys_lower = (P_ao_dist - P_sys) / params.R_systemic;       % [mL/s]
+% Upper body venous return: P_sys → P_ra  (same path as original PDA model)
+Q_sys_return = (P_sys - P_ra) / params.R_systemic;           % [mL/s]
+% Lower body: distal aorta (post-CoA) → P_ra directly, parallel to upper body
+% R_systemic here = 2×(MAP/CO) so that upper‖lower = MAP/CO (total SVR preserved)
+Q_sys_lower = (P_ao_dist - P_ra) / params.R_systemic;        % [mL/s]
 % Pulmonary venous return
 Q_pv_return = (P_pv - P_la) / params.R_pv_veins;             % [mL/s]
 
@@ -114,8 +115,8 @@ DeltaP_coa_resistive = params.R_coa_viscous * Q_coa ...
 
 %% 5. ODEs
 
-% Right atrium
-dX(idx.P_ra)       = (Q_sys_upper + Q_sys_lower - Q_tv) / params.C_ra;      % [mmHg/s]
+% Right atrium: receives upper-body (Q_sys_return) + lower-body (Q_sys_lower) venous return
+dX(idx.P_ra)       = (Q_sys_return + Q_sys_lower - Q_tv) / params.C_ra;     % [mmHg/s]
 
 % Right ventricle (active elastance)
 dX(idx.P_rv)       = (P_rv / E_rv) * dE_rv + E_rv * (Q_tv - Q_pv_valve);   % [mmHg/s]
@@ -143,16 +144,15 @@ dX(idx.P_ao)       = (Q_av - Q_ao_sys - Q_coa - Q_shunt_pda) / params.C_ao; % [m
 dX(idx.Q_ao_sys)   = (P_ao - P_sys) / params.L_ao ...
                    - Q_ao_sys * params.R_ao / params.L_ao;                  % [mL/s²]
 
-% Systemic veins: receives both upper and lower body drainage
-dX(idx.P_sys)      = (Q_ao_sys + Q_sys_lower - ...
-                       (P_sys - P_ra) / params.R_systemic) / params.C_sys;  % [mmHg/s]
+% Systemic veins: receives upper-body inertance flow, drains to P_ra (upper body only)
+dX(idx.P_sys)      = (Q_ao_sys - Q_sys_return) / params.C_sys;              % [mmHg/s]
 
 % PDA shunt flow momentum (Ao → PA)
 dX(idx.Q_shunt_pda)= (P_ao - P_pa) / params.L_shunt_pda ...
                    - Q_shunt_pda * params.R_shunt_pda / params.L_shunt_pda; % [mL/s²]
 
-% Distal aorta: receives CoA flow, drains to lower body
-dX(idx.P_ao_dist)  = (Q_coa - Q_sys_lower) / params.C_sys;                 % [mmHg/s]
+% Distal aorta: receives CoA flow, drains to lower body systemic (uses aortic compliance)
+dX(idx.P_ao_dist)  = (Q_coa - Q_sys_lower) / params.C_ao;                  % [mmHg/s]
 
 % CoA flow momentum (proximal → distal through stenosis)
 dX(idx.Q_coa)      = (P_ao - P_ao_dist - DeltaP_coa_resistive) / params.L_coa; % [mL/s²]
