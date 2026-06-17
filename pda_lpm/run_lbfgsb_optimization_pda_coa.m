@@ -15,8 +15,8 @@
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set):
-%   Emax_lv, stenosis_pct, C_ao
-%   (C_sys, R_systemic, coa_length_mm excluded — low ST or fixed geometry)
+%   Emax_lv, stenosis_pct, R_systemic
+%   (C_ao, C_sys, coa_length_mm excluded — low ST or fixed geometry)
 %   To change, edit Section A2 opt_param_names and A3 opt_bounds.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
@@ -73,7 +73,7 @@ patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 opt_param_names = {
     'Emax_lv'         % LV peak elastance                   [mmHg/mL]
     'stenosis_pct'    % CoA stenosis severity               [%]
-    'C_ao'            % Aortic compliance (controls pulse pressure) [mL/mmHg]
+    'R_systemic'      % Total systemic vascular resistance  [mmHg·s/mL]
 };
 
 %% A3. Parameter bounds  [lower, upper]
@@ -81,23 +81,28 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     25.0    % Emax_lv     [mmHg/mL]  — consistent with allometric ceiling
+    3.0,     20.0    % Emax_lv      [mmHg/mL]  — neonatal physiological clamp range
     5.0,     99.0    % stenosis_pct [%]
-    0.00010, 0.002000 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
+    1.0,      8.0    % R_systemic   [mmHg·s/mL] — neonatal SVR range:
+                     %   LB=1.0: high-CO, vasodilated (min viable perfusion)
+                     %   UB=8.0: low-CO, vasoconstricted (shock)
+                     %   Baseline patient 1: MAP/CO = 37.0/15.8 = 2.34 mmHg·s/mL
 ];
-% R_shunt_pda is NOT optimized — GSA shows it is not a significant parameter.
-% It is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
+% C_ao is NOT optimized — GSA shows ST_mean < threshold after corrected bounds.
+%   C_ao is fixed at the allometric-scaled baseline (build_patient_params).
+% R_shunt_pda is NOT optimized — fixed at Doppler-derived baseline: R = dP_pda / (A×v).
 
 %% A4. Objective weights
 %  Higher weight = this target is more important to match.
 %  Set weight to 0 to exclude a target from the objective.
-weights.MAP    = 5.0;   % Mean arterial pressure (most reliable clinical target)
+weights.MAP    = 5.0;   % Mean arterial pressure — primary R_systemic observable (MAP≈CO×R_sys)
 weights.SBP    = 2.0;   % Systolic blood pressure
 weights.DBP    = 1.5;   % Diastolic blood pressure
-weights.SV     = 4.0;   % Stroke volume
-weights.PP     = 2.0;   % Pulse pressure (SBP − DBP) — C_ao observable
+weights.SV     = 4.0;   % Stroke volume — primary Emax_lv observable (SV=P_lv/Emax)
+weights.PP     = 1.0;   % Pulse pressure (SBP−DBP) — reduced: C_ao is now fixed so
+                        %   PP is not directly controllable by the optimized parameters
 weights.dP_PDA = 3.0;   % PDA pressure gradient (Doppler-derived)
-weights.dP_CoA = 2.5;   % CoA pressure gradient (Doppler-derived, if available)
+weights.dP_CoA = 2.5;   % CoA pressure gradient — primary stenosis_pct observable
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
 default_stenosis_pct   = 50.0;   % [%]  — starting geometry
@@ -122,7 +127,7 @@ fmincon_opts = optimoptions('fmincon', ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [5.0, 50.0, 0.0005], ... % ← ADD: representative scale per param
+    'TypicalX',               [8.0, 50.0, 2.5], ...    % representative scale: [Emax_lv, stenosis_pct, R_systemic]
     'FiniteDifferenceStepSize', 1e-4, ...               % ← ADD: relative step for mixed scales
     'OutputFcn',              @optimization_output_callback);
 
