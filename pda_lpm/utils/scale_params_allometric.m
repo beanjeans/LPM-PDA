@@ -90,7 +90,7 @@ fprintf('SCALE_PARAMS_ALLOMETRIC: BW ratio = %.4f (%.3f kg / %.1f kg)\n', ...
 % Viscous resistance: blood viscosity × vessel geometry → b = −1.0
 %   R ∝ μ L / r^4; vessel radii and lengths scale with BW^(1/3) → b = −1
 %   Reference: [P&F2000] Table 1, viscous resistance row
-b_R_viscous    = -1.00;
+b_R_viscous    = -0.67;
 
 % Turbulent/convective resistance: b = −1.33 (accounts for inertial effects)
 %   Reference: [P&F2000] Table 1, turbulent resistance row
@@ -156,8 +156,6 @@ params_neo.R_shunt_pda = params_adult.R_shunt_pda * sf_R_turb;
 % Note: R_shunt_pda = Inf in adult baseline (no PDA); overridden below
 % in build_patient_params regardless. This line handles cases where a
 % non-Inf adult R_shunt_pda seed is ever provided.
-
-fprintf('  [R_turbulent] PDA initial estimate (b=%.2f): sf=%.6f\n', b_R_turbulent, sf_R_turb);
 
 %% -----------------------------------------------------------------------
 %  SECTION 3: Vascular Compliances — b = +1.33 [P&F2000]
@@ -243,7 +241,7 @@ params_neo.Emin_rv = params_neo.Emax_rv * 0.05;
 
 fprintf('  [E_elastance] Scaling factor (b=%.2f): %.6f (clamped to physiological range)\n', ...
     b_E_elastance, sf_E);
-fprintf('    Emax_lv = %.4f mmHg/mL  (adult: %.4f) [Why flat 0.8 failed: see header]\n', ...
+fprintf('    Emax_lv = %.4f mmHg/mL  (adult: %.4f)\n', ...
     params_neo.Emax_lv, params_adult.Emax_lv);
 fprintf('    Emin_lv = %.4f mmHg/mL  (adult: %.4f)\n', params_neo.Emin_lv, params_adult.Emin_lv);
 fprintf('    Emax_rv = %.4f mmHg/mL  (adult: %.4f)\n', params_neo.Emax_rv, params_adult.Emax_rv);
