@@ -135,11 +135,13 @@ if params.scenario_coa && isfield(idx, 'P_ao_dist')
     model.Q_coa_peak  = max(X_cyc(:, idx.Q_coa));      % [mL/s]
 
     % --- CoA / total flow fraction  (Q_coa / Q_total) ------------------
-    % Q_total into proximal aorta ≈ Q_coa + Q_ao_sys  (upper-body + CoA)
-    Q_ao_sys_mean = mean(X_cyc(:, idx.Q_ao_sys));      % [mL/s]
-    Q_total_mean  = model.Q_coa_mean + Q_ao_sys_mean;  % [mL/s]
-    if Q_total_mean > 0
-        model.Q_coa_fraction = model.Q_coa_mean / Q_total_mean;  % [0–1]
+    % Use forward (positive) mean flows to avoid blowup when flows transiently
+    % reverse: raw mean can be near-zero or negative, making the ratio explode.
+    Q_coa_fwd   = mean(max(0, X_cyc(:, idx.Q_coa)));    % [mL/s]
+    Q_ao_fwd    = mean(max(0, X_cyc(:, idx.Q_ao_sys))); % [mL/s]
+    Q_total_fwd = Q_coa_fwd + Q_ao_fwd;                 % [mL/s]
+    if Q_total_fwd > 1e-6
+        model.Q_coa_fraction = Q_coa_fwd / Q_total_fwd;  % guaranteed [0–1]
     else
         model.Q_coa_fraction = NaN;
     end

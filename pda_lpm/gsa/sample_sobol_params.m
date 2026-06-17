@@ -67,10 +67,16 @@ function [X_all, param_names, param_bounds, n_total, sample_info] = sample_sobol
 param_defs = {
     'R_shunt_pda',       0.5,      20.0   % [mmHg·s/mL] PDA resistance
     'R_systemic',        1.0,      15.0   % [mmHg·s/mL] Total SVR
-    'R_pa',              0.01,     0.20   % [mmHg·s/mL] Pulmonary resistance
-    'C_ao',              0.0001,   0.0020   % [mL/mmHg]   Aortic compliance
+    'R_pa',              0.05,     1.00   % [mmHg·s/mL] Pulmonary resistance — updated:
+                                          %   clinical override (P_pa-P_pv)/Q_pul gives
+                                          %   0.21–0.62 across patients; old [0.01,0.20]
+                                          %   placed ALL samples below the operating point
+    'C_ao',              0.0001,   0.0020 % [mL/mmHg]   Aortic compliance
     'C_sys',             0.05,     0.50   % [mL/mmHg]   Systemic compliance
-    'Emax_lv',           0.5,      25.0    % [mmHg/mL]   LV elastance
+    'Emax_lv',           3.0,      20.0   % [mmHg/mL]   LV elastance — updated:
+                                          %   narrowed from [0.5,25] to neonatal clamp
+                                          %   range [3,20]; wide range caused Emax_lv
+                                          %   to monopolise variance (ST > 1 artefact)
     'stenosis_pct',      10,       95     % [%]         CoA stenosis
     'coa_length_mm',     1,        15     % [mm]        CoA length
 };
