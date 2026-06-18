@@ -15,8 +15,7 @@
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set):
-%   Emax_lv, stenosis_pct, R_systemic
-%   (C_ao, C_sys, coa_length_mm excluded — low ST or fixed geometry)
+%   Emax_lv, stenosis_pct, R_systemic, C_sys, coa_length_mm  (P03 top-5)
 %   To change, edit Section A2 opt_param_names and A3 opt_bounds.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
@@ -74,6 +73,8 @@ opt_param_names = {
     'Emax_lv'         % LV peak elastance                   [mmHg/mL]
     'stenosis_pct'    % CoA stenosis severity               [%]
     'R_systemic'      % Total systemic vascular resistance  [mmHg·s/mL]
+    'C_sys'           % Systemic venous compliance          [mL/mmHg]
+    'coa_length_mm'   % CoA lesion length                   [mm]
 };
 
 %% A3. Parameter bounds  [lower, upper]
@@ -81,12 +82,11 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    3.0,     20.0    % Emax_lv      [mmHg/mL]  — neonatal physiological clamp range
-    5.0,     99.0    % stenosis_pct [%]
-    2.0,     20.0    % R_systemic   [mmHg·s/mL] — CoA model: each body half carries ½ CO,
-                     %   so R_systemic = 2×(MAP/CO) for total SVR preservation.
-                     %   LB=2.0: vasodilated (2×min-viable); UB=20.0: vasoconstricted.
-                     %   Baseline P02: 2×38.7/6.857 = 11.29 mmHg·s/mL
+    3.0,     20.0    % Emax_lv         [mmHg/mL]   — neonatal physiological clamp range
+    5.0,     99.0    % stenosis_pct    [%]
+    2.0,     20.0    % R_systemic      [mmHg·s/mL]  — 2×MAP/CO; LB=vasodilated, UB=vasoconstricted
+    0.02,    0.5     % C_sys           [mL/mmHg]    — neonatal venous compliance range
+    2.0,     20.0    % coa_length_mm   [mm]          — short focal to long tunnel CoA
 ];
 % C_ao is NOT optimized — GSA shows ST_mean < threshold after corrected bounds.
 %   C_ao is fixed at the allometric-scaled baseline (build_patient_params).
@@ -128,7 +128,7 @@ fmincon_opts = optimoptions('fmincon', ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [8.0, 50.0, 11.0], ...   % representative scale: [Emax_lv, stenosis_pct, R_systemic=2×MAP/CO]
+    'TypicalX',               [8.0, 50.0, 11.0, 0.08, 5.0], ...   % representative scale: [Emax_lv, stenosis_pct, R_systemic, C_sys, coa_length_mm]
     'FiniteDifferenceStepSize', 1e-4, ...               % ← ADD: relative step for mixed scales
     'OutputFcn',              @optimization_output_callback);
 
