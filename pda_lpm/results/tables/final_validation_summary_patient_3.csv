@@ -1,0 +1,2 @@
+PatientID,PatientIdx,NMetrics,MAE,RMSE,MeanPercentError,MaxAbsoluteError,Notes
+P03,3,6,11.4038044299508,14.1343250893568,89.7581274091791,25.0731147942773,Post-calibration agreement; J_final=16.755480; N_valid=6

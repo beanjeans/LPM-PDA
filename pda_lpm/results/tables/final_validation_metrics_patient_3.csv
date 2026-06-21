@@ -1,0 +1,8 @@
+Metric,ClinicalTarget,SimulatedValue,SignedError,AbsoluteError,PercentError,Units,IncludedInOptimization,Notes
+SBP,61,76.5656691005385,15.5656691005385,15.5656691005385,25.5174903287516,mmHg,Yes,Systolic BP; used in objective (w=2.0)
+DBP,35,9.92688520572268,-25.0731147942773,25.0731147942773,71.6374708407923,mmHg,Yes,Diastolic BP; used in objective (w=1.5)
+MAP,43.7,27.3861281119934,-16.3138718880066,16.3138718880066,37.3315146178641,mmHg,Yes,Mean arterial pressure; primary target (w=3.0)
+SV,3.04,7.11343163553341,4.07343163553341,4.07343163553341,133.994461695178,mL,Yes,Stroke volume; used in objective (w=2.0)
+dP_CoA_peak,4.9,11.5675948985882,6.66759489858821,6.66759489858821,136.07336527731,mmHg,Yes,CoA pressure gradient (echo vs peak-sim); w=2.5
+CO,0.54416,1.27330426276048,0.72914426276048,0.72914426276048,133.994461695178,L/min,No,Cardiac output; derived clinical value; not in objective
+Qp_Qs,NaN,NaN,NaN,NaN,NaN,-,No,Pulmonary/systemic flow ratio; sim-only (no clinical target)
