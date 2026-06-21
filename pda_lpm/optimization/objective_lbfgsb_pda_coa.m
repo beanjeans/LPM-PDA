@@ -214,9 +214,15 @@ if w.dP_PDA > 0 && clinical.dP_pda_mmHg > 0
 end
 
 % --- CoA pressure gradient (Doppler-derived reference, if available) ---
-% clinical.dP_coa_mmHg is the measured echo CoA gradient (may be 0 if not measured)
-if w.dP_CoA > 0 && isfield(clinical, 'dP_coa_mmHg') && clinical.dP_coa_mmHg > 0
-    err_dP_CoA = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / clinical.dP_coa_mmHg;
+% clinical.dP_coa_mmHg is the measured echo CoA gradient.
+% When clinical value is 0 (no CoA), any simulated gradient is penalised
+% using a 10 mmHg normalisation so the error scale is comparable.
+if w.dP_CoA > 0 && isfield(clinical, 'dP_coa_mmHg')
+    if clinical.dP_coa_mmHg > 0
+        err_dP_CoA = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / clinical.dP_coa_mmHg;
+    else
+        err_dP_CoA = m.DeltaP_coa_peak / 10.0;   % penalise spurious gradient; 10 mmHg normalisation
+    end
     J = J + w.dP_CoA * err_dP_CoA^2;
 end
 

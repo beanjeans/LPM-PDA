@@ -1,0 +1,2 @@
+PatientID,Scenario,Stenosis_pct,Length_mm,Length_category,DeltaP_peak_mmHg,DeltaP_mean_sys_mmHg,Q_coa_fraction,Predicted_severity,MAP_mmHg,CO_Lmin,SV_mL,EF_pct,Qp_Qs
+P02,CoA 50% | 5mm-longseg,49.94,5,long-segment,5.04926741779967,1.59720060665285,0.372695165995499,mild,21.8988520958631,0.27982666303923,1.89072069621101,57.8137927972766,0.759105907481918
