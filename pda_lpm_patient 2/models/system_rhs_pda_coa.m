@@ -61,7 +61,7 @@ function dX = system_rhs_pda_coa(t, X, params)
 %
 % SIGN CONVENTIONS:
 %   - Q_coa > 0       : forward flow, proximal → distal aorta
-%   - Q_shunt_pda > 0 : left-to-right PDA shunt (Ao → PA)
+%   - Q_shunt_pda > 0 : left-to-right PDA shunt (Ao_dist → PA)
 %   - DeltaP_coa      = P_ao (proximal) − P_ao_dist (distal)
 %
 % REFERENCES:
@@ -136,8 +136,8 @@ dX(idx.P_la)       = (Q_pv_return - Q_mv) / params.C_la;                   % [mm
 % Left ventricle (active elastance)
 dX(idx.P_lv)       = (P_lv / E_lv) * dE_lv + E_lv * (Q_mv - Q_av);       % [mmHg/s]
 
-% Proximal aorta: LV output → feeds upper body + CoA + PDA shunt
-dX(idx.P_ao)       = (Q_av - Q_ao_sys - Q_coa - Q_shunt_pda) / params.C_ao; % [mmHg/s]
+% Proximal aorta: LV output → feeds upper body + CoA segment (PDA no longer taps here)
+dX(idx.P_ao)       = (Q_av - Q_ao_sys - Q_coa) / params.C_ao;               % [mmHg/s]
 
 % Proximal systemic flow momentum
 dX(idx.Q_ao_sys)   = (P_ao - P_sys) / params.L_ao ...
@@ -147,12 +147,12 @@ dX(idx.Q_ao_sys)   = (P_ao - P_sys) / params.L_ao ...
 dX(idx.P_sys)      = (Q_ao_sys + Q_sys_lower - ...
                        (P_sys - P_ra) / params.R_systemic) / params.C_sys;  % [mmHg/s]
 
-% PDA shunt flow momentum (Ao → PA)
-dX(idx.Q_shunt_pda)= (P_ao - P_pa) / params.L_shunt_pda ...
+% PDA shunt flow momentum (Ao_dist → PA): PDA anatomically connects PA to descending aorta
+dX(idx.Q_shunt_pda)= (P_ao_dist - P_pa) / params.L_shunt_pda ...
                    - Q_shunt_pda * params.R_shunt_pda / params.L_shunt_pda; % [mL/s²]
 
-% Distal aorta: receives CoA flow, drains to lower body
-dX(idx.P_ao_dist)  = (Q_coa - Q_sys_lower) / params.C_sys;                 % [mmHg/s]
+% Distal aorta: receives CoA flow, loses flow to PDA shunt and lower body
+dX(idx.P_ao_dist)  = (Q_coa - Q_shunt_pda - Q_sys_lower) / params.C_sys;  % [mmHg/s]
 
 % CoA flow momentum (proximal → distal through stenosis)
 dX(idx.Q_coa)      = (P_ao - P_ao_dist - DeltaP_coa_resistive) / params.L_coa; % [mL/s²]

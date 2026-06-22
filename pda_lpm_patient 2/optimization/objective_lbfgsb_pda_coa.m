@@ -206,9 +206,9 @@ end
 
 % --- PDA pressure gradient (Doppler-derived reference) ---
 % clinical.dP_pda_mmHg is the Bernoulli-derived PDA gradient from echo
-% Model: pressure difference across the PDA ≈ P_ao_mean − P_pa_mean
+% Model: PDA drives from distal aorta to PA (Bug 4 fix); use P_ao_dist_mean
 if w.dP_PDA > 0 && clinical.dP_pda_mmHg > 0
-    sim_dP_pda = m.P_ao_mean - m.P_pa_mean;
+    sim_dP_pda = m.P_ao_dist_mean - m.P_pa_mean;
     err_dP_PDA = (sim_dP_pda - clinical.dP_pda_mmHg) / clinical.dP_pda_mmHg;
     J = J + w.dP_PDA * err_dP_PDA^2;
 end

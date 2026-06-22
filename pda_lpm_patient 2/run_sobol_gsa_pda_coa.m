@@ -72,7 +72,7 @@ N = 1024;
 
 % Patient index (1-based, corresponds to patient_data.csv row)
 % Set to desired patient or loop over all patients
-patient_idx = 1;
+patient_idx = 2;
 
 % CSV path
 csv_path = fullfile('config', 'patient_data.csv');

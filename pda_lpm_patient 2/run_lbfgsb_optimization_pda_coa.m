@@ -15,8 +15,8 @@
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set):
-%   Emax_lv, stenosis_pct, C_ao
-%   (C_sys, R_systemic, coa_length_mm excluded — low ST or fixed geometry)
+%   Emax_lv, stenosis_pct, C_ao, C_sys
+%   (R_systemic, coa_length_mm excluded — low ST or fixed geometry)
 %   To change, edit Section A2 opt_param_names and A3 opt_bounds.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
@@ -71,9 +71,10 @@ patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 %  These are the influential parameters from Sobol GSA.
 %  Comment out any parameter you want to fix to its baseline value.
 opt_param_names = {
-    'Emax_lv'         % LV peak elastance                   [mmHg/mL]
-    'stenosis_pct'    % CoA stenosis severity               [%]
+    'Emax_lv'         % LV peak elastance                          [mmHg/mL]
+    'stenosis_pct'    % CoA stenosis severity                      [%]
     'C_ao'            % Aortic compliance (controls pulse pressure) [mL/mmHg]
+    'C_sys'           % Systemic venous compliance (affects preload/SV) [mL/mmHg]
 };
 
 %% A3. Parameter bounds  [lower, upper]
@@ -81,9 +82,10 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     25.0    % Emax_lv     [mmHg/mL]  — consistent with allometric ceiling
-    5.0,     99.0    % stenosis_pct [%]
+    0.5,     30.0     % Emax_lv     [mmHg/mL]  — expanded to 30 for small preterm neonates
+    5.0,     99.0     % stenosis_pct [%]
     0.00010, 0.002000 % C_ao        [mL/mmHg]  — neonatal aortic compliance range
+    0.02,    0.5      % C_sys       [mL/mmHg]  — systemic venous compliance
 ];
 % R_shunt_pda is NOT optimized — GSA shows it is not a significant parameter.
 % It is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
@@ -122,7 +124,7 @@ fmincon_opts = optimoptions('fmincon', ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [5.0, 50.0, 0.0005], ... % ← ADD: representative scale per param
+    'TypicalX',               [5.0, 50.0, 0.0005, 0.15], ... % representative scale per param
     'FiniteDifferenceStepSize', 1e-4, ...               % ← ADD: relative step for mixed scales
     'OutputFcn',              @optimization_output_callback);
 
@@ -218,7 +220,7 @@ C_sys_clinical          = clinical.SV_mL / max(clinical.P_ao_mean_mmHg - 4, 1);
 params_base.C_sys       = max(0.05, min(0.5, C_sys_clinical));
 
 P_lv_target    = clinical.P_ao_mean_mmHg * 1.30;
-params_base.Emax_lv = max(3.0, min(20.0, P_lv_target / clinical.SV_mL));
+params_base.Emax_lv = max(3.0, min(30.0, P_lv_target / clinical.SV_mL));
 params_base.Emin_lv = params_base.Emax_lv * 0.05;
 params_base.Emax_rv = max(1.5, min(12.0, params_base.Emax_lv * 0.5));
 params_base.Emin_rv = params_base.Emax_rv * 0.05;
