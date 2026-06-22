@@ -193,7 +193,8 @@ if w.SV > 0 && clinical.SV_mL > 0
 end
 
 % --- Pulse Pressure (SBP − DBP) --- identifiable via C_ao ---
-% PP = SBP − DBP ≈ SV / C_ao, so this term drives C_ao calibration.
+% PP = SBP − DBP ≈ SV / C_ao. This term is active only when C_ao is being
+% optimized. If weights.PP = 0 (C_ao fixed), this block is automatically skipped.
 % Clinical target: from measured SSAP and SDAP.
 if isfield(w, 'PP') && w.PP > 0
     clin_PP = clinical.P_ao_sys_mmHg - clinical.P_ao_dia_mmHg;
