@@ -2,46 +2,41 @@ function [J, sim_outputs] = objective_lbfgsb_pda_coa(x_opt, opt_config)
 % OBJECTIVE_LBFGSB_PDA_COA
 % -----------------------------------------------------------------------
 % Objective function for bounded quasi-Newton (L-BFGS-B-style) optimization
-% of the PDA-CoA Lumped Parameter Model.
+% of the PDA-CoA Lumped Parameter Model — Patient 1 (PDA-only) configuration.
 %
-% Evaluates a weighted, normalized least-squares error between the
-% model-simulated haemodynamic quantities and the patient's clinical
-% measurements:
+% Patient 1 is a PDA-only patient.  No clinical CoA gradient is measured.
+% The objective is restricted to MAP and SV only:
 %
-%   J = Σ  w_i × ( (sim_i − clin_i) / clin_i )²
+%   J = w_MAP * ((sim_MAP - clin_MAP) / max(|clin_MAP|, 1.0))^2
+%     + w_SV  * ((sim_SV  - clin_SV)  / max(|clin_SV|,  0.1))^2
+%     + plausibility_penalties
 %
-% The function is designed to be passed to fmincon (MATLAB's built-in
-% bounded quasi-Newton solver, which uses an L-BFGS-B-style algorithm
-% when called with bounds and the 'quasi-newton' sub-problem solver).
+% Active parameters: Emax_lv, stenosis_pct, R_systemic
+% Clinical targets:  MAP, SV
+% NOT used in objective: SBP, DBP, PP, dP_PDA, dP_CoA, Q_CoA/Q_total
 %
 % INPUTS:
 %   x_opt       - (D_opt × 1) vector of current parameter values,
 %                 in the order defined by opt_config.param_names
 %   opt_config  - struct with all fixed optimization settings:
 %       .param_names    — cell array of optimized parameter names
-%       .param_lb       — lower bounds (same order as param_names)
-%       .param_ub       — upper bounds
 %       .fixed_params   — params struct with non-optimized fields fixed
 %       .clinical       — clinical measurement struct
 %       .stenosis_pct   — CoA stenosis [%] (optimized if in param_names)
 %       .coa_length_mm  — CoA length   [mm] (optimized if in param_names)
-%       .weights        — struct of objective weights (w_MAP, w_SBP, etc.)
+%       .weights        — struct of objective weights
 %       .n_warmup       — ODE warm-up cycles
 %       .n_report       — ODE reporting cycles
 %       .penalty        — large value returned on solver failure
 %
 % OUTPUTS:
 %   J           - scalar objective value (≥ 0)
-%   sim_outputs - struct of simulated quantities (empty on failure)
-%
-% REFERENCES:
-%   [1] Nocedal J & Wright SJ (2006). Numerical Optimization, 2nd ed.
-%       Springer. Chapter 7 (L-BFGS).
-%   [2] Ortiz-Rangel et al. (2022). Biomed Signal Process Control 71:103151.
+%   sim_outputs - struct of simulated quantities (empty on failure);
+%                 includes objective_breakdown sub-struct
 %
 % AUTHOR:   Optimization Extension — Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0
+% VERSION:  2.0  — restricted to MAP+SV objective for PDA-only patient
 % -----------------------------------------------------------------------
 
 %% 1. Unpack current parameter vector into the params struct
@@ -159,84 +154,76 @@ m = indices.model;   % Shorthand to simulated model outputs
 
 %% 6. Compute weighted normalized least-squares objective
 % -----------------------------------------------------------------------
-% J = Σ  w_i × ( (sim_i − clin_i) / clin_i )²
+% Patient 1 is PDA-only.  Only MAP and SV are direct clinical targets.
+% Normalization uses max(|clin|, floor) to avoid division by tiny values.
+% A term is only added when: weight > 0, clinical value is finite and
+% non-zero, and the simulated value is finite.
 %
-% Each term is normalized by the clinical reference value so that all
-% outputs are dimensionless and on a comparable scale regardless of units.
-% Weights allow prioritizing clinically important targets.
+% SBP, DBP, PP, dP_PDA, dP_CoA are NOT included (weights = 0).
+% CoA gradient (dP_coa_mmHg = 0 in CSV) is not a measured clinical value
+% for this patient and must not be used as an optimization target.
 
 J = 0;
+objective_breakdown = struct();
 
 % --- Mean Arterial Pressure ---
-% Clinical reference: clinical.P_ao_mean_mmHg
-if w.MAP > 0 && clinical.P_ao_mean_mmHg > 0
-    err_MAP = (m.P_ao_mean - clinical.P_ao_mean_mmHg) / clinical.P_ao_mean_mmHg;
-    J = J + w.MAP * err_MAP^2;
-end
-
-% --- Systolic Blood Pressure ---
-if w.SBP > 0 && clinical.P_ao_sys_mmHg > 0
-    err_SBP = (m.P_ao_sys - clinical.P_ao_sys_mmHg) / clinical.P_ao_sys_mmHg;
-    J = J + w.SBP * err_SBP^2;
-end
-
-% --- Diastolic Blood Pressure ---
-if w.DBP > 0 && clinical.P_ao_dia_mmHg > 0
-    err_DBP = (m.P_ao_dia - clinical.P_ao_dia_mmHg) / clinical.P_ao_dia_mmHg;
-    J = J + w.DBP * err_DBP^2;
+clin_MAP = clinical.P_ao_mean_mmHg;
+sim_MAP  = m.P_ao_mean;
+if w.MAP > 0 && isfinite(clin_MAP) && clin_MAP ~= 0 && isfinite(sim_MAP)
+    norm_MAP = max(abs(clin_MAP), 1.0);
+    err_MAP  = (sim_MAP - clin_MAP) / norm_MAP;
+    contrib_MAP = w.MAP * err_MAP^2;
+    J = J + contrib_MAP;
+    objective_breakdown.MAP.error                = sim_MAP - clin_MAP;
+    objective_breakdown.MAP.weighted_contribution = contrib_MAP;
+else
+    objective_breakdown.MAP.error                = NaN;
+    objective_breakdown.MAP.weighted_contribution = 0;
 end
 
 % --- Stroke Volume ---
-if w.SV > 0 && clinical.SV_mL > 0
-    err_SV = (m.SV_lv - clinical.SV_mL) / clinical.SV_mL;
-    J = J + w.SV * err_SV^2;
+clin_SV = clinical.SV_mL;
+sim_SV  = m.SV_lv;
+if w.SV > 0 && isfinite(clin_SV) && clin_SV ~= 0 && isfinite(sim_SV)
+    norm_SV = max(abs(clin_SV), 0.1);
+    err_SV  = (sim_SV - clin_SV) / norm_SV;
+    contrib_SV = w.SV * err_SV^2;
+    J = J + contrib_SV;
+    objective_breakdown.SV.error                = sim_SV - clin_SV;
+    objective_breakdown.SV.weighted_contribution = contrib_SV;
+else
+    objective_breakdown.SV.error                = NaN;
+    objective_breakdown.SV.weighted_contribution = 0;
 end
 
-% --- Pulse Pressure (SBP − DBP) --- identifiable via C_ao ---
-% PP = SBP − DBP ≈ SV / C_ao. This term is active only when C_ao is being
-% optimized. If weights.PP = 0 (C_ao fixed), this block is automatically skipped.
-% Clinical target: from measured SSAP and SDAP.
-if isfield(w, 'PP') && w.PP > 0
-    clin_PP = clinical.P_ao_sys_mmHg - clinical.P_ao_dia_mmHg;
-    sim_PP  = m.P_ao_sys - m.P_ao_dia;
-    if clin_PP > 0
-        err_PP = (sim_PP - clin_PP) / clin_PP;
-        J = J + w.PP * err_PP^2;
-    end
-end
+% SBP, DBP, PP, dP_PDA, dP_CoA — all weights are 0 for this configuration.
+% These blocks are intentionally omitted.  CoA gradient (dP_coa_mmHg) in
+% the CSV is 0 because Patient 1 has no measured CoA and must not be used.
 
-% --- PDA pressure gradient (Doppler-derived reference) ---
-% clinical.dP_pda_mmHg is the Bernoulli-derived PDA gradient from echo
-% Model: pressure difference across the PDA ≈ P_ao_mean − P_pa_mean
-if w.dP_PDA > 0 && clinical.dP_pda_mmHg > 0
-    sim_dP_pda = m.P_ao_mean - m.P_pa_mean;
-    err_dP_PDA = (sim_dP_pda - clinical.dP_pda_mmHg) / clinical.dP_pda_mmHg;
-    J = J + w.dP_PDA * err_dP_PDA^2;
-end
-
-% --- CoA pressure gradient (Doppler-derived reference, if available) ---
-% clinical.dP_coa_mmHg is the measured echo CoA gradient (may be 0 if not measured)
-if w.dP_CoA > 0 && isfield(clinical, 'dP_coa_mmHg') && clinical.dP_coa_mmHg > 0
-    err_dP_CoA = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / clinical.dP_coa_mmHg;
-    J = J + w.dP_CoA * err_dP_CoA^2;
-end
+objective_breakdown.total = J;
 
 %% 7. Pack simulated outputs for caller inspection
 % -----------------------------------------------------------------------
-sim_outputs.P_ao_mean        = m.P_ao_mean;
-sim_outputs.P_ao_sys         = m.P_ao_sys;
-sim_outputs.P_ao_dia         = m.P_ao_dia;
-sim_outputs.PP               = m.P_ao_sys - m.P_ao_dia;
-sim_outputs.P_pa_mean        = m.P_pa_mean;
-sim_outputs.SV_lv            = m.SV_lv;
-sim_outputs.CO_Lmin          = m.CO_Lmin;
-sim_outputs.EF_lv            = m.EF_lv;
-sim_outputs.DeltaP_coa_peak       = m.DeltaP_coa_peak;
-sim_outputs.DeltaP_coa_mean_sys   = m.DeltaP_coa_mean_sys;
-sim_outputs.Q_coa_fraction        = m.Q_coa_fraction;
-sim_outputs.predicted_CoA_severity= m.predicted_CoA_severity;
-sim_outputs.pda_modifier_note     = m.pda_modifier_note;
-sim_outputs.J                     = J;
+% Primary optimization outputs
+sim_outputs.P_ao_mean = m.P_ao_mean;
+sim_outputs.SV_lv     = m.SV_lv;
+
+% Additional simulated values (not optimization targets for Patient 1)
+sim_outputs.P_ao_sys             = m.P_ao_sys;
+sim_outputs.P_ao_dia             = m.P_ao_dia;
+sim_outputs.PP                   = m.P_ao_sys - m.P_ao_dia;
+sim_outputs.P_pa_mean            = m.P_pa_mean;
+sim_outputs.CO_Lmin              = m.CO_Lmin;
+sim_outputs.EF_lv                = m.EF_lv;
+sim_outputs.DeltaP_coa_peak      = m.DeltaP_coa_peak;
+sim_outputs.DeltaP_coa_mean_sys  = m.DeltaP_coa_mean_sys;
+sim_outputs.Q_coa_fraction       = m.Q_coa_fraction;
+sim_outputs.predicted_CoA_severity = m.predicted_CoA_severity;
+sim_outputs.pda_modifier_note    = m.pda_modifier_note;
+
+% Objective metadata
+sim_outputs.J                    = J;
+sim_outputs.objective_breakdown  = objective_breakdown;
 sim_outputs.t_sol  = t_sol;
 sim_outputs.X_sol  = X_sol;
 sim_outputs.params = params_coa;

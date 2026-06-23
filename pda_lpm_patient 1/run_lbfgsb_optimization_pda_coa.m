@@ -7,12 +7,17 @@
 %   by minimizing a weighted normalized least-squares error between
 %   simulated and clinical haemodynamic measurements.
 %
-%   Objective:
-%     J = Σ  w_i × ( (sim_i − clin_i) / clin_i )²
+%   Objective (Patient 1 — PDA-only, direct targets only):
+%     J = w_MAP * ((sim_MAP - clin_MAP) / max(|clin_MAP|, 1.0))^2
+%       + w_SV  * ((sim_SV  - clin_SV)  / max(|clin_SV|,  0.1))^2
 %
 %   Uses MATLAB fmincon with the 'interior-point' algorithm and parameter
 %   bounds — functionally equivalent to L-BFGS-B bounded optimization.
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
+%
+%   Patient 1 is PDA-only.  No clinical CoA gradient is measured.
+%   The objective is restricted to MAP and SV.
+%   SBP, DBP, dP_PDA, dP_CoA are NOT used in the objective.
 %
 % PARAMETERS OPTIMIZED (from Sobol GSA influential set, N=1024, 3 independent runs):
 %   Emax_lv (ST_mean=0.81), stenosis_pct (ST_mean=0.66), R_systemic (ST_mean=0.21)
@@ -26,14 +31,13 @@
 %   5. Apply optimized parameters & run final simulation
 %   6. Save results to CSV
 %   7. Generate plots
-%   8. Report final CoA clinical outputs
+%   8. Report primary optimization outputs (MAP, SV only)
 %
 % OUTPUT FILES (saved to results/optimization/):
-%   optimized_parameters.csv   — optimized vs baseline parameter values
-%   objective_history.csv      — J and x per optimizer iteration
-%   opt_convergence.png        — objective convergence + parameter traces
-%   opt_clinical_comparison.png — before vs after target comparison
-%   opt_coa_summary.png        — CoA clinical output summary
+%   optimized_parameters.csv    — optimized vs baseline parameter values
+%   objective_history.csv       — J and x per optimizer iteration
+%   opt_convergence.png         — objective convergence + parameter traces
+%   opt_clinical_comparison.png — MAP and SV before vs after optimization
 %
 % IMPORTANT:
 %   This script does NOT modify any existing model files.
@@ -89,16 +93,23 @@ opt_bounds = [
 % R_shunt_pda is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
 % C_ao is fixed at the allometrically scaled default value.
 
-%% A4. Objective weights
-%  Higher weight = this target is more important to match.
-%  Set weight to 0 to exclude a target from the objective.
-weights.MAP    = 5.0;   % Mean arterial pressure (most reliable clinical target)
-weights.SBP    = 2.0;   % Systolic blood pressure
-weights.DBP    = 1.5;   % Diastolic blood pressure
-weights.SV     = 4.0;   % Stroke volume
-weights.PP     = 0.0;   % Pulse pressure — disabled (C_ao is not optimized in this run)
-weights.dP_PDA = 3.0;   % PDA pressure gradient (Doppler-derived)
-weights.dP_CoA = 2.5;   % CoA pressure gradient (Doppler-derived, if available)
+%% A4. Objective mode and weights
+%  Patient 1 is PDA-only.  No clinical CoA gradient is available.
+%  The objective uses only MAP and SV as direct clinical targets.
+%  Other outputs (SBP, DBP, dP_PDA, dP_CoA) are not included because
+%  they are not direct targets in this 3-parameter setup.
+objective_mode = 'direct_targets_MAP_SV_only';
+primary_optimization_metrics = {'MAP', 'SV'};
+
+weights.MAP          = 5.0;   % Mean arterial pressure — primary direct target
+weights.SV           = 4.0;   % Stroke volume — primary direct target
+weights.SBP          = 0.0;   % Disabled — not a direct target for 3-param setup
+weights.DBP          = 0.0;   % Disabled — not a direct target for 3-param setup
+weights.PP           = 0.0;   % Disabled — C_ao is not optimized
+weights.dP_PDA       = 0.0;   % Disabled — not a direct target for 3-param setup
+weights.dP_CoA_peak  = 0.0;   % Disabled — no measured CoA for Patient 1
+weights.dP_CoA_mean  = 0.0;   % Disabled — no measured CoA for Patient 1
+weights.Q_CoA_frac   = 0.0;   % Disabled — no measured CoA for Patient 1
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
 default_stenosis_pct   = 50.0;   % [%]  — starting geometry
@@ -183,7 +194,7 @@ end
 
 fprintf('  Patient: %s | HR: %d bpm | MAP: %.1f mmHg | SV: %.2f mL\n', ...
     clinical.patient_id, clinical.HR_bpm, clinical.P_ao_mean_mmHg, clinical.SV_mL);
-fprintf('  Clinical CoA gradient (echo): %.1f mmHg\n\n', clinical.dP_coa_mmHg);
+fprintf('  No measured CoA target is used in optimization (PDA-only patient).\n\n');
 
 % =========================================================================
 %  STEP 2 — BUILD BASELINE PARAMETERS
@@ -397,10 +408,24 @@ writetable(T_history, history_csv);
 fprintf('  Saved: %s\n', history_csv);
 
 % --- 7c. Full workspace ---
+% Extract objective breakdowns for convenience
+if isstruct(baseline_outputs) && isfield(baseline_outputs, 'objective_breakdown')
+    objective_breakdown_baseline = baseline_outputs.objective_breakdown;
+else
+    objective_breakdown_baseline = struct();
+end
+if isstruct(opt_outputs) && isfield(opt_outputs, 'objective_breakdown')
+    objective_breakdown_final = opt_outputs.objective_breakdown;
+else
+    objective_breakdown_final = struct();
+end
+
 mat_path = fullfile(results_dir, 'optimization_workspace.mat');
 save(mat_path, 'x_opt', 'x0', 'J_opt', 'J_baseline', 'J_final', ...
     'x_history', 'J_history', 'opt_config', 'clinical', 'params_opt', ...
-    'stenosis_opt', 'coa_length_opt', 'baseline_outputs', 'opt_outputs');
+    'stenosis_opt', 'coa_length_opt', 'baseline_outputs', 'opt_outputs', ...
+    'objective_mode', 'weights', 'primary_optimization_metrics', ...
+    'objective_breakdown_baseline', 'objective_breakdown_final');
 fprintf('  Saved: %s\n\n', mat_path);
 
 % =========================================================================
@@ -414,46 +439,53 @@ plot_optimization_results(baseline_outputs, opt_outputs, clinical, ...
 fprintf('\n');
 
 % =========================================================================
-%  STEP 9 — FINAL CLINICAL REPORT
+%  STEP 9 — FINAL OPTIMIZATION REPORT
 % =========================================================================
 fprintf('=========================================================================\n');
-fprintf('   OPTIMIZATION RESULTS: CoA CLINICAL OUTPUTS\n');
+fprintf('   PRIMARY OPTIMIZATION OUTPUTS\n');
 fprintf('   Patient: %s\n', clinical.patient_id);
 fprintf('=========================================================================\n\n');
 
-fprintf('  %-30s  %12s  %12s  %12s\n', 'Target', 'Clinical', 'Pre-Opt', 'Post-Opt');
-fprintf('  %s\n', repmat('-', 1, 70));
+fprintf('  Objective mode:  %s\n', objective_mode);
+fprintf('  Active params:   Emax_lv, stenosis_pct, R_systemic\n');
+fprintf('  Clinical targets used in objective: MAP, SV\n');
+fprintf('  No measured CoA target is used for this PDA-only patient.\n');
+fprintf('\n');
 
 % Helper for safe display
 def_nan = @(s, f) get_val_safe(s, f);
 
-fprintf('  %-30s  %12.1f  %12.1f  %12.1f\n', 'MAP (mmHg)', ...
-    clinical.P_ao_mean_mmHg, def_nan(baseline_outputs,'P_ao_mean'), def_nan(opt_outputs,'P_ao_mean'));
-fprintf('  %-30s  %12.1f  %12.1f  %12.1f\n', 'SBP (mmHg)', ...
-    clinical.P_ao_sys_mmHg, def_nan(baseline_outputs,'P_ao_sys'), def_nan(opt_outputs,'P_ao_sys'));
-fprintf('  %-30s  %12.1f  %12.1f  %12.1f\n', 'DBP (mmHg)', ...
-    clinical.P_ao_dia_mmHg, def_nan(baseline_outputs,'P_ao_dia'), def_nan(opt_outputs,'P_ao_dia'));
-fprintf('  %-30s  %12.2f  %12.2f  %12.2f\n', 'SV (mL)', ...
-    clinical.SV_mL, def_nan(baseline_outputs,'SV_lv'), def_nan(opt_outputs,'SV_lv'));
-fprintf('\n');
-fprintf('  %-30s  %12.1f  %12.1f  %12.1f\n', 'dP_CoA_peak (mmHg)', ...
-    clinical.dP_coa_mmHg, def_nan(baseline_outputs,'DeltaP_coa_peak'), def_nan(opt_outputs,'DeltaP_coa_peak'));
-fprintf('  %-30s  %12s  %12.1f  %12.1f\n', 'dP_CoA_mean_sys (mmHg)', ...
-    '(Doppler)', def_nan(baseline_outputs,'DeltaP_coa_mean_sys'), def_nan(opt_outputs,'DeltaP_coa_mean_sys'));
-fprintf('  %-30s  %12s  %12.3f  %12.3f\n', 'Q_CoA / Q_total', ...
-    '—', def_nan(baseline_outputs,'Q_coa_fraction'), def_nan(opt_outputs,'Q_coa_fraction'));
-fprintf('\n');
-fprintf('  %-30s  %12s  %12s  %12s\n', 'Predicted Severity', ...
-    '(Echo)', ...
-    upper(get_str_safe(baseline_outputs,'predicted_CoA_severity')), ...
-    upper(get_str_safe(opt_outputs,'predicted_CoA_severity')));
+% Compute percent errors for direct targets
+map_pre  = def_nan(baseline_outputs, 'P_ao_mean');
+map_post = def_nan(opt_outputs,      'P_ao_mean');
+sv_pre   = def_nan(baseline_outputs, 'SV_lv');
+sv_post  = def_nan(opt_outputs,      'SV_lv');
+
+map_err_pre  = 100 * (map_pre  - clinical.P_ao_mean_mmHg) / max(abs(clinical.P_ao_mean_mmHg), 1.0);
+map_err_post = 100 * (map_post - clinical.P_ao_mean_mmHg) / max(abs(clinical.P_ao_mean_mmHg), 1.0);
+sv_err_pre   = 100 * (sv_pre   - clinical.SV_mL)          / max(abs(clinical.SV_mL), 0.1);
+sv_err_post  = 100 * (sv_post  - clinical.SV_mL)          / max(abs(clinical.SV_mL), 0.1);
+
+fprintf('  %-10s  %12s  %12s  %12s  %14s\n', ...
+    'Target', 'Clinical', 'Pre-Opt', 'Post-Opt', 'Error Post-Opt');
+fprintf('  %s\n', repmat('-', 1, 66));
+fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
+    'MAP (mmHg)', clinical.P_ao_mean_mmHg, map_pre, map_post, map_err_post);
+fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
+    'SV (mL)',    clinical.SV_mL,          sv_pre,  sv_post,  sv_err_post);
+fprintf('  %s\n', repmat('-', 1, 66));
 fprintf('\n');
 fprintf('  Objective J:    Baseline = %.6f  |  Final = %.6f\n', J_baseline, J_final);
 fprintf('  Improvement:    %.2f%%\n', 100*(J_baseline - J_final)/max(J_baseline,eps));
 fprintf('\n');
-fprintf('  Optimized CoA geometry:\n');
+fprintf('  Optimized parameters:\n');
 fprintf('    stenosis_pct  = %.2f%%\n', stenosis_opt);
-fprintf('    coa_length_mm = %.2f mm\n\n', coa_length_opt);
+fprintf('    coa_length_mm = %.2f mm  (fixed geometry; not optimized)\n', coa_length_opt);
+fprintf('\n');
+fprintf('  This optimization uses only MAP and SV as direct clinical targets.\n');
+fprintf('  Other model outputs are not included in the optimization or final\n');
+fprintf('  validation metrics for this configuration.\n');
+fprintf('\n');
 fprintf('  Results saved to: %s/\n', results_dir);
 fprintf('=========================================================================\n');
 
