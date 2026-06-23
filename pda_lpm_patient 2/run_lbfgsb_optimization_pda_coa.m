@@ -68,7 +68,7 @@ fprintf('=================================================================\n\n')
 
 %% A1. Patient selection
 csv_path    = fullfile('config', 'patient_data.csv');
-patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
+patient_idx = 2;    % Patient row index in patient_data.csv (1-based)
 
 %% A2. Parameters to optimize (must match struct field names exactly)
 %  These are the influential parameters from Sobol GSA.
