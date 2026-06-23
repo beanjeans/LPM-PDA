@@ -1,17 +1,15 @@
 %% RUN_FINAL_VALIDATION_METRICS
 % =========================================================================
-% POST-CALIBRATION AGREEMENT METRICS — PDA-CoA LPM
+% FINAL VALIDATION METRICS — PDA-only LPM (Patient 2)
 %
 % PURPOSE:
 %   Compute and report agreement between the final post-optimisation
-%   simulation outputs and the patient's clinical reference values.
+%   simulation outputs and the patient's clinical reference values for
+%   the two direct optimization targets: MAP and SV.
 %
-%   *** IMPORTANT TERMINOLOGY NOTE ***
-%   These are POST-CALIBRATION agreement metrics, NOT independent external
-%   validation.  The same clinical targets (MAP, SBP, DBP, SV, dP_CoA)
-%   were used as the optimisation objective during calibration.  These
-%   numbers therefore quantify HOW WELL the model reproduces the training
-%   targets, not predictive accuracy on unseen data.
+%   This patient has a PDA only — no CoA anatomy.  SBP, DBP, and CoA
+%   pressure gradient were NOT optimization targets and are therefore
+%   excluded from this validation report.
 %
 % WORKFLOW POSITION:
 %   Run AFTER the three-step pipeline has been completed:
@@ -32,10 +30,12 @@
 %   Console table printed to MATLAB command window.
 %
 % METRICS REPORTED:
-%   SBP, DBP, MAP, SV, CoA pressure gradient (peak), CO, Qp/Qs (if avail)
+%   MAP and SV only (the two direct optimization targets).
+%   CoA, SBP, and DBP are not reported because they are not targets
+%   for this PDA-only patient.
 %
-% SUMMARY STATISTICS (across all valid metric pairs):
-%   MAE, RMSE, MeanPercentError, MaxAbsoluteError, NMetrics
+% SUMMARY STATISTICS (across MAP and SV):
+%   MAE, RMSE, MeanPercentError, NMetrics
 %
 % RULES:
 %   - Does NOT modify any existing .m files.
@@ -48,18 +48,18 @@
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0  — initial post-calibration agreement reporting
+% VERSION:  2.0  — PDA-only patient; MAP+SV targets only
 % =========================================================================
 
 clear; clc;
 
 fprintf('=================================================================\n');
-fprintf('   POST-CALIBRATION AGREEMENT METRICS\n');
-fprintf('   PDA-CoA Lumped Parameter Cardiovascular Model\n');
+fprintf('   FINAL VALIDATION METRICS\n');
+fprintf('   PDA-only Lumped Parameter Cardiovascular Model (Patient 2)\n');
 fprintf('=================================================================\n\n');
-fprintf('  NOTE: These metrics quantify agreement between the final\n');
-fprintf('  calibrated simulation and the clinical training targets.\n');
-fprintf('  They are NOT independent external validation metrics.\n\n');
+fprintf('  This patient has a PDA only — no CoA anatomy.\n');
+fprintf('  Only MAP and SV were used as optimization targets.\n');
+fprintf('  SBP, DBP, and CoA gradient are excluded from this report.\n\n');
 
 % =========================================================================
 %  STEP 1 — LOCATE AND LOAD THE OPTIMISATION WORKSPACE
@@ -165,14 +165,9 @@ fprintf('STEP 3: Assembling metric definitions...\n');
 %  NaN and excluded from summary statistics.
 
 metric_defs = {
-%  Label          ClinicalField           SimField          Unit     InOpt     Notes
-'SBP',          'P_ao_sys_mmHg',         'P_ao_sys',       'mmHg',  'Yes',    'Systolic BP; used in objective (w=2.0)';
-'DBP',          'P_ao_dia_mmHg',         'P_ao_dia',       'mmHg',  'Yes',    'Diastolic BP; used in objective (w=1.5)';
-'MAP',          'P_ao_mean_mmHg',        'P_ao_mean',      'mmHg',  'Yes',    'Mean arterial pressure; primary target (w=3.0)';
-'SV',           'SV_mL',                 'SV_lv',          'mL',    'Yes',    'Stroke volume; used in objective (w=2.0)';
-'dP_CoA_peak',  'dP_coa_mmHg',           'DeltaP_coa_peak','mmHg',  'Yes',    'CoA pressure gradient (echo vs peak-sim); w=2.5';
-'CO',           'CO_Lmin',               'CO_Lmin',        'L/min', 'No',     'Cardiac output; derived clinical value; not in objective';
-'Qp_Qs',        [],                      'Qp_Qs',          '-',     'No',     'Pulmonary/systemic flow ratio; sim-only (no clinical target)';
+%  Label   ClinicalField        SimField     Unit    IncludedInObjective   Notes
+'MAP',  'P_ao_mean_mmHg',    'P_ao_mean', 'mmHg', 'true',  'Mean arterial pressure; direct optimization target (w=5.0)';
+'SV',   'SV_mL',             'SV_lv',     'mL',   'true',  'Stroke volume; direct optimization target (w=4.0)';
 };
 
 n_metric_defs = size(metric_defs, 1);
@@ -254,21 +249,19 @@ if n_valid > 0
     MAE_val              = mean(abs_errs_valid,         'omitnan');
     RMSE_val             = sqrt(mean(abs_errs_valid.^2, 'omitnan'));
     MeanPercentError_val = mean(pct_errs_valid,         'omitnan');
-    MaxAbsoluteError_val = max(abs_errs_valid,          [], 'omitnan');
 else
     MAE_val              = NaN;
     RMSE_val             = NaN;
     MeanPercentError_val = NaN;
-    MaxAbsoluteError_val = NaN;
 end
 
 % =========================================================================
 %  STEP 6 — PRINT CONSOLE TABLE
 % =========================================================================
 fprintf('=================================================================\n');
-fprintf('   POST-CALIBRATION AGREEMENT METRICS — Patient %s\n', ...
+fprintf('   FINAL VALIDATION METRICS — Patient %s\n', ...
     safe_get_str(clinical, 'patient_id', file_token));
-fprintf('   (Agreement after calibration; same targets used in objective)\n');
+fprintf('   Direct optimization outputs: MAP and SV only.\n');
 fprintf('=================================================================\n');
 
 col_w = [14, 14, 14, 11, 11, 11, 7];   % Column widths
@@ -301,16 +294,15 @@ for k = 1:n_metric_defs
 end
 
 fprintf('%s\n', repmat('=', 1, length(hdr)));
-fprintf('\n  Summary Statistics (across %d valid metric pairs):\n', n_valid);
+fprintf('\n  Summary Statistics (MAP and SV only — %d direct optimization outputs):\n', n_valid);
 fprintf('  %-28s  %10s\n', 'Statistic', 'Value');
 fprintf('  %s\n', repmat('-', 1, 42));
 fprintf('  %-28s  %10.4f\n', 'MAE (mixed units)',   MAE_val);
 fprintf('  %-28s  %10.4f\n', 'RMSE (mixed units)',  RMSE_val);
 fprintf('  %-28s  %10.2f%%\n','Mean Percent Error',  MeanPercentError_val);
-fprintf('  %-28s  %10.4f\n', 'Max Absolute Error',  MaxAbsoluteError_val);
 fprintf('  %-28s  %10d\n',   'N Metrics included',  n_valid);
 fprintf('  %s\n', repmat('=', 1, 42));
-fprintf('\n  Calibration objective J_final = %.6f\n\n', J_final);
+fprintf('\n  Optimization objective J_final = %.6f\n\n', J_final);
 
 % =========================================================================
 %  STEP 7 — BUILD AND SAVE OUTPUT TABLES
@@ -338,12 +330,12 @@ T_metrics = table( ...
     'VariableNames', { ...
         'Metric', ...
         'ClinicalTarget', ...
-        'SimulatedValue', ...
+        'PreOptValue', ...
         'SignedError', ...
-        'AbsoluteError', ...
+        'AbsError', ...
         'PercentError', ...
-        'Units', ...
-        'IncludedInOptimization', ...
+        'Unit', ...
+        'IncludedInObjective', ...
         'Notes' ...
     });
 
@@ -364,7 +356,6 @@ T_summary = table( ...
     MAE_val, ...
     RMSE_val, ...
     MeanPercentError_val, ...
-    MaxAbsoluteError_val, ...
     {summary_notes}, ...
     'VariableNames', { ...
         'PatientID', ...
@@ -373,7 +364,6 @@ T_summary = table( ...
         'MAE', ...
         'RMSE', ...
         'MeanPercentError', ...
-        'MaxAbsoluteError', ...
         'Notes' ...
     });
 
@@ -384,7 +374,7 @@ fprintf('  Saved summary table:     %s\n', summary_csv);
 
 fprintf('\n');
 fprintf('=================================================================\n');
-fprintf('   POST-CALIBRATION METRICS COMPLETE\n');
+fprintf('   FINAL VALIDATION COMPLETE\n');
 fprintf('   Patient: %s  |  N valid metrics: %d\n', ...
     safe_get_str(clinical, 'patient_id', file_token), n_valid);
 fprintf('   MAE = %.4f  |  RMSE = %.4f  |  MeanPctErr = %.2f%%\n', ...
