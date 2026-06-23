@@ -105,36 +105,31 @@ exportgraphics(fig1, fig1_path, 'Resolution', 300);
 fprintf('  Saved: %s\n', fig1_path);
 
 % =========================================================================
-%  FIGURE 2 — Clinical Target Comparison (Before vs After)
+%  FIGURE 2 — Primary Optimization Outputs: Before vs After
+%  Only shows MAP, SV, and dP_CoA_peak — the direct clinical targets.
 % =========================================================================
-fig2 = figure('Name', 'Clinical vs Simulated Comparison', ...
-    'Position', [100 100 1000 560], 'Color', 'w');
+fig2 = figure('Name', 'Primary Optimization Outputs', ...
+    'Position', [100 100 800 520], 'Color', 'w');
 
-% Define the comparison targets
-target_labels  = {'MAP (mmHg)', 'SBP (mmHg)', 'DBP (mmHg)', 'SV (mL)', 'dP_{PDA} (mmHg)'};
+% Direct optimization targets only: MAP, SV, dP_CoA_peak
+target_labels  = {'MAP (mmHg)', 'SV (mL)', 'dP_{CoA,peak} (mmHg)'};
 clinical_vals  = [
     clinical.P_ao_mean_mmHg
-    clinical.P_ao_sys_mmHg
-    clinical.P_ao_dia_mmHg
     clinical.SV_mL
-    clinical.dP_pda_mmHg
+    clinical.dP_coa_mmHg   % measured CoA target (dPCoA = 4.9 mmHg for Patient 3)
 ];
 
 % Safe extraction with fallback to NaN if field missing
 baseline_vals = [
     safe_get(baseline_outputs, 'P_ao_mean')
-    safe_get(baseline_outputs, 'P_ao_sys')
-    safe_get(baseline_outputs, 'P_ao_dia')
     safe_get(baseline_outputs, 'SV_lv')
-    safe_get(baseline_outputs, 'P_ao_mean') - safe_get(baseline_outputs, 'P_pa_mean')
+    safe_get(baseline_outputs, 'DeltaP_coa_peak')
 ];
 
 opt_vals = [
     safe_get(opt_outputs, 'P_ao_mean')
-    safe_get(opt_outputs, 'P_ao_sys')
-    safe_get(opt_outputs, 'P_ao_dia')
     safe_get(opt_outputs, 'SV_lv')
-    safe_get(opt_outputs, 'P_ao_mean') - safe_get(opt_outputs, 'P_pa_mean')
+    safe_get(opt_outputs, 'DeltaP_coa_peak')
 ];
 
 n_targets = length(target_labels);
@@ -148,22 +143,26 @@ b(3).FaceColor = C_optimized;  b(3).EdgeColor = 'none'; b(3).FaceAlpha = 0.9;
 set(gca, 'XTick', 1:n_targets, 'XTickLabel', target_labels, ...
     'FontSize', 10, 'Box', 'off', 'GridAlpha', 0.15);
 ylabel('Value', 'FontSize', 12);
-title('Clinical Targets: Before vs After Optimization', 'FontSize', 14, 'FontWeight', 'bold');
+title('Primary Optimization Outputs: Before vs After Optimization', ...
+    'FontSize', 13, 'FontWeight', 'bold');
 legend({'Clinical Reference', 'Baseline (Pre-Opt)', 'Optimized (Post-Opt)'}, ...
     'Location', 'northwest', 'FontSize', 10);
 grid on;
 xtickangle(20);
 
-% Annotate % error bars
+% Annotate % error for MAP, SV, and dP_CoA_peak only
 for i = 1:n_targets
-    if clinical_vals(i) > 0
+    if isfinite(clinical_vals(i)) && clinical_vals(i) > 0
         err_base = 100 * abs(baseline_vals(i) - clinical_vals(i)) / clinical_vals(i);
         err_opt  = 100 * abs(opt_vals(i)      - clinical_vals(i)) / clinical_vals(i);
-        % Place text above the optimized bar
-        text(i + 0.22, opt_vals(i) * 1.02, sprintf('%.1f%%', err_opt), ...
-            'FontSize', 7, 'Color', C_optimized, 'HorizontalAlignment', 'center');
-        text(i - 0.02, baseline_vals(i) * 1.02, sprintf('%.1f%%', err_base), ...
-            'FontSize', 7, 'Color', C_baseline, 'HorizontalAlignment', 'center');
+        if isfinite(opt_vals(i))
+            text(i + 0.22, opt_vals(i) * 1.02, sprintf('%.1f%%', err_opt), ...
+                'FontSize', 7, 'Color', C_optimized, 'HorizontalAlignment', 'center');
+        end
+        if isfinite(baseline_vals(i))
+            text(i - 0.02, baseline_vals(i) * 1.02, sprintf('%.1f%%', err_base), ...
+                'FontSize', 7, 'Color', C_baseline, 'HorizontalAlignment', 'center');
+        end
     end
 end
 
