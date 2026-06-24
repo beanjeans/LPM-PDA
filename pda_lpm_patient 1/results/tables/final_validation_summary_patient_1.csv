@@ -1,2 +1,2 @@
-PatientID,PatientIdx,NMetrics,MAE,RMSE,MeanPercentError,MaxAbsoluteError,Notes
-P01,1,6,6.11428565751087,9.5687169229172,9.86977718774314,21.8680851625211,Post-calibration agreement; J_final=1.180347; N_valid=6
+PatientID,PatientIdx,NMetrics,MAE,RMSE,MeanPercentError,Notes
+P01,1,2,2.5128034633292,3.40248498060088,8.31860610944593,Direct optimization outputs MAP+SV only; J_final=0.089706; N_valid=2
