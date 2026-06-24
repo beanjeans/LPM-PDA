@@ -1,0 +1,2 @@
+PatientID,PatientIdx,NMetrics,MAE,RMSE,MeanPercentError,Notes
+P03,3,3,1.06493408960558,1.41097269319743,8.25620144109703,"Direct targets only (MAP,SV,dP_CoA_peak); objective_mode=PDA_CoA_P03_extended_5param; coa_penalty=mild_zone(<=10mmHg); J_final=0.045493; N=3; For dP_CoA_peak: clinical error vs 4.9mmHg still reported but objective penalty=0 if sim<=10mmHg"

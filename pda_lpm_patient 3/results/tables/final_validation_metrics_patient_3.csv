@@ -1,0 +1,4 @@
+Metric,ClinicalTarget,PreOptValue,PostOptValue,SignedError,AbsError,PercentError,Unit,IncludedInObjective,ObjectivePenaltyMode,ObjectivePenaltyContribution,Reason
+MAP,43.667,25.2153219500871,45.9981845866763,2.33118458667634,2.33118458667634,5.33854990422136,mmHg,1,standard_normalized,0.0342001380958343,Standard normalized squared error (MAP)
+SV,3.038735,2.62754500839168,2.89432178801647,-0.14441321198353,0.14441321198353,4.75241217097014,mL,1,standard_normalized,0.0112927107213926,Standard normalized squared error (SV)
+dP_CoA_peak,4.9,3.50834465598176,5.61920447015688,0.71920447015688,0.71920447015688,14.6776422480996,mmHg,1,mild_zone,0,No penalty: simulated CoA gradient within mild zone
