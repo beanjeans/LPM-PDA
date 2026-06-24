@@ -45,6 +45,11 @@
 
 clear; clc; close all;
 
+%% Configuration
+% Set to true to load and apply saved optimised parameters before simulation.
+% Set to false to run the baseline LPM from clinical data only.
+use_optimized_parameters = true;
+
 %% Add all subdirectory paths
 addpath('config', 'models', 'solvers', 'utils', 'tests', 'optimization');
 
@@ -93,45 +98,119 @@ params_default = default_parameters(BW_neo_kg);
 params_pda     = build_patient_params(clinical, params_default);
 
 %% =========================================================================
-%  STEP 3b — APPLY OPTIMISED PARAMETERS (if available)
-%  For PDA_only patients: apply only Emax_lv and R_systemic.
-%  stenosis_pct and coa_length_mm are silently ignored — they affect the
-%  CoA module only, which is not activated for PDA-only patients.
+%  STEP 3b — APPLY OPTIMISED PARAMETERS (controlled by use_optimized_parameters)
+%  For PDA_only patients: apply only Emax_lv, Emin_lv, Emax_rv, Emin_rv,
+%    and R_systemic.  stenosis_pct / coa_length_mm are silently ignored
+%    because the CoA module is not activated for PDA-only patients.
+%  For PDA_CoA patients: apply all available optimised parameters.
+%
+%  Preferred source : results/optimization/optimization_workspace.mat
+%  Fallback source  : results/optimization/optimized_parameters.csv
+%  If neither exists: print warning and continue with baseline parameters.
 % =========================================================================
-opt_workspace = fullfile('results', 'optimization', 'optimization_workspace.mat');
+opt_loaded          = false;   % whether any optimised params were successfully loaded
+applied_params_list = {};      % names of parameters actually written to params_pda
 
-if exist(opt_workspace, 'file')
-    fprintf('  Loading optimised parameters from: %s\n', opt_workspace);
-    ws_opt = load(opt_workspace);
+if use_optimized_parameters
 
-    if isfield(ws_opt, 'x_opt') && isfield(ws_opt, 'opt_config')
-        x_opt_loaded         = ws_opt.x_opt;
-        opt_cfg              = ws_opt.opt_config;
-        opt_cfg.fixed_params = params_pda;   % use freshly built patient params as base
+    opt_workspace = fullfile('results', 'optimization', 'optimization_workspace.mat');
+    opt_csv_path  = fullfile('results', 'optimization', 'optimized_parameters.csv');
 
-        [params_opt_raw, ~, ~] = apply_optimized_params(x_opt_loaded, opt_cfg);
+    if exist(opt_workspace, 'file')
+        %% --- PRIMARY PATH: load from workspace .mat ---
+        fprintf('  Loading optimised parameters from: %s\n', opt_workspace);
+        ws_opt = load(opt_workspace);
+
+        if isfield(ws_opt, 'x_opt') && isfield(ws_opt, 'opt_config')
+            x_opt_loaded         = ws_opt.x_opt;
+            opt_cfg              = ws_opt.opt_config;
+            opt_cfg.fixed_params = params_pda;   % freshly built patient params as base
+
+            [params_opt_raw, ~, ~] = apply_optimized_params(x_opt_loaded, opt_cfg);
+
+            if strcmp(disease_mode, 'PDA_only')
+                params_pda.Emax_lv    = params_opt_raw.Emax_lv;
+                params_pda.Emin_lv    = params_opt_raw.Emin_lv;
+                params_pda.Emax_rv    = params_opt_raw.Emax_rv;
+                params_pda.Emin_rv    = params_opt_raw.Emin_rv;
+                params_pda.R_systemic = params_opt_raw.R_systemic;
+                applied_params_list   = {'Emax_lv', 'Emin_lv', 'Emax_rv', 'Emin_rv', 'R_systemic'};
+                fprintf('  PDA-only patient detected. Applying optimized PDA/systemic parameters only.\n');
+                fprintf('  Applied optimized parameters: Emax_lv, R_systemic.\n');
+                fprintf('  Ignored CoA parameters for PDA-only mode.\n');
+            else
+                params_pda          = params_opt_raw;
+                applied_params_list = opt_cfg.param_names;
+                fprintf('  Applied all optimised parameters for PDA_CoA mode.\n');
+            end
+            opt_loaded = true;
+
+        else
+            fprintf('  WARNING: optimization_workspace.mat missing x_opt or opt_config.\n');
+            fprintf('           Using calibrated baseline parameters.\n');
+        end
+
+    elseif exist(opt_csv_path, 'file')
+        %% --- FALLBACK PATH: load from optimized_parameters.csv ---
+        fprintf('  Workspace .mat not found. Loading from CSV fallback: %s\n', opt_csv_path);
+        opt_table = readtable(opt_csv_path);
+
+        [params_pda, applied_params_list, ignored_list] = ...
+            apply_optimized_params_to_lpm(params_pda, opt_table, disease_mode);
+
+        opt_loaded = ~isempty(applied_params_list);
 
         if strcmp(disease_mode, 'PDA_only')
-            % PDA-only: copy only the physically relevant optimised params.
-            % stenosis_pct and coa_length_mm are NOT applied — CoA module is off.
-            params_pda.Emax_lv    = params_opt_raw.Emax_lv;
-            params_pda.Emin_lv    = params_opt_raw.Emin_lv;
-            params_pda.Emax_rv    = params_opt_raw.Emax_rv;
-            params_pda.Emin_rv    = params_opt_raw.Emin_rv;
-            params_pda.R_systemic = params_opt_raw.R_systemic;
-            fprintf('  Applied optimised: Emax_lv = %.4f mmHg/mL,  R_systemic = %.4f mmHg*s/mL\n', ...
-                params_pda.Emax_lv, params_pda.R_systemic);
-            fprintf('  (stenosis_pct and coa_length_mm ignored — CoA module not active for PDA-only patient)\n\n');
+            fprintf('  PDA-only patient detected. Applying optimized PDA/systemic parameters only.\n');
+            if ~isempty(applied_params_list)
+                fprintf('  Applied optimized parameters: %s\n', strjoin(applied_params_list, ', '));
+            end
+            if ~isempty(ignored_list)
+                fprintf('  Ignored CoA parameters for PDA-only mode.\n');
+            end
         else
-            params_pda = params_opt_raw;
-            fprintf('  Applied all optimised parameters for PDA_CoA mode.\n\n');
+            if ~isempty(applied_params_list)
+                fprintf('  Applied optimised parameters (PDA_CoA): %s\n', strjoin(applied_params_list, ', '));
+            end
         end
+
     else
-        fprintf('  WARNING: optimization_workspace.mat missing x_opt or opt_config — using default calibrated params.\n\n');
+        fprintf('  WARNING: Optimized parameter file not found. Running baseline LPM simulation.\n');
     end
+
+    fprintf('\n');
+
 else
-    fprintf('  No optimisation workspace found — using default calibrated parameters.\n\n');
+    fprintf('STEP 3b: use_optimized_parameters = false — running baseline LPM without optimised params.\n\n');
 end
+
+%% =========================================================================
+%  SIMULATION CONFIGURATION SUMMARY
+% =========================================================================
+fprintf('--- FINAL LPM SIMULATION CONFIGURATION ---\n');
+if use_optimized_parameters && opt_loaded
+    fprintf('  Final LPM simulation mode: optimized\n');
+elseif use_optimized_parameters && ~opt_loaded
+    fprintf('  Final LPM simulation mode: optimized (requested — parameter file not found; using baseline)\n');
+else
+    fprintf('  Final LPM simulation mode: baseline\n');
+end
+fprintf('  Disease mode: %s\n', disease_mode);
+if opt_loaded
+    fprintf('  Optimization result loaded: yes\n');
+else
+    fprintf('  Optimization result loaded: no\n');
+end
+if opt_loaded && ~isempty(applied_params_list)
+    fprintf('  Applied optimized parameters: %s\n', strjoin(applied_params_list, ', '));
+end
+if strcmp(disease_mode, 'PDA_only')
+    fprintf('  Final outputs: MAP, SV\n');
+    fprintf('  No CoA module is applied for this PDA-only patient.\n');
+else
+    fprintf('  Final outputs: MAP, SV, CoA gradient, CoA severity\n');
+end
+fprintf('%s\n\n', repmat('-', 1, 44));
 
 %% =========================================================================
 %  STEP 4 — SIMULATE PDA-ONLY BASELINE
@@ -350,14 +429,14 @@ if strcmp(disease_mode, 'PDA_only')
 
     rows_out = {
         clinical.patient_id, 'MAP', clinical.P_ao_mean_mmHg, m_out.P_ao_mean, ...
-            map_err_o, 100 * abs(map_err_o) / clinical.P_ao_mean_mmHg, 'mmHg';
+            map_err_o, abs(map_err_o), 100 * abs(map_err_o) / clinical.P_ao_mean_mmHg, 'mmHg', true;
         clinical.patient_id, 'SV',  clinical.SV_mL,          m_out.SV_lv, ...
-            sv_err_o,  100 * abs(sv_err_o)  / clinical.SV_mL,          'mL'
+            sv_err_o,  abs(sv_err_o),  100 * abs(sv_err_o)  / clinical.SV_mL,          'mL',  true
     };
 
     T_lpm = cell2table(rows_out, 'VariableNames', { ...
-        'PatientID', 'Metric', 'ClinicalTarget', 'Simulated', ...
-        'SignedError', 'PercentError_pct', 'Unit'});
+        'PatientID', 'Metric', 'ClinicalTarget', 'SimulatedValue', ...
+        'SignedError', 'AbsError', 'PercentError', 'Unit', 'IncludedInObjective'});
 
     csv_path_lpm = fullfile(results_dir_lpm, ...
         sprintf('lpm_pda_primary_outputs_%s.csv', patient_id_safe));
