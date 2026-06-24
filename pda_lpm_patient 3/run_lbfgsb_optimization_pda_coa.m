@@ -90,7 +90,7 @@ opt_bounds = [
 %   Lower    Upper
     0.5,     25.0    % Emax_lv      [mmHg/mL]   — allometric ceiling
     5.0,     99.0    % stenosis_pct [%]
-    3.0,     8.0     % R_systemic   [mmHg·s/mL] — grounded around clinical ≈ 4.82
+    0.05,    30.0    % R_systemic   [mmHg·s/mL] — physiological SVR range
 ];
 % C_ao, C_sys, R_pa, R_shunt_pda are NOT optimized for this Patient 3 config.
 
@@ -116,12 +116,12 @@ weights.dP_CoA         = 0.0;   % Legacy field — inactive (use dP_CoA_peak ins
 %  Zero penalty when sim dP_CoA_peak <= coa_mild_upper_mmHg.
 %  Standard penalty on excess above the mild-zone limit.
 %  Barrier penalty when sim dP_CoA_peak > coa_hard_upper_mmHg.
-coa_penalty_mode    = 'standard';  % Use standard error vs measured dP_CoA = 4.9 mmHg
-coa_mild_upper_mmHg = 10.0;   % [mmHg] (retained for reference; inactive in standard mode)
-coa_hard_upper_mmHg = 20.0;   % [mmHg] (retained for reference; inactive in standard mode)
+coa_penalty_mode    = 'mild_zone';
+coa_mild_upper_mmHg = 10.0;   % [mmHg] no penalty if sim dP_CoA_peak <= this
+coa_hard_upper_mmHg = 20.0;   % [mmHg] barrier penalty above this (mild/moderate threshold)
 
 %% A4c. Objective mode and primary metrics
-objective_mode = 'direct_targets_MAP_SV_CoA_P03';
+objective_mode = 'direct_targets_MAP_SV_CoA_mild_zone_P03';
 primary_optimization_metrics = {'MAP', 'SV', 'dP_CoA_peak'};
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
@@ -142,13 +142,13 @@ penalty  = 1e6;   % Objective value returned on ODE/build failure
 fmincon_opts = optimoptions('fmincon', ...
     'Algorithm',              'interior-point', ...
     'Display',                'iter', ...
-    'MaxIterations',          500, ...
+    'MaxIterations',          200, ...
     'MaxFunctionEvaluations', 2000, ...
     'OptimalityTolerance',    1e-6, ...
-    'StepTolerance',          1e-6, ...
+    'StepTolerance',          1e-8, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [10.0, 50.0, 5.0], ...    % matches Emax_lv≈10, stenosis≈50, R_sys≈5
-    'FiniteDifferenceStepSize', 5e-4, ...
+    'TypicalX',               [5.0, 50.0, 15.0], ...    % representative scale per param
+    'FiniteDifferenceStepSize', 1e-4, ...
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
@@ -327,16 +327,6 @@ for k = 1:length(opt_param_names)
     end
     % Clamp x0 to bounds
     x0(k) = max(lb(k), min(ub(k), x0(k)));
-end
-
-% P03: Emax_lv x0 is derived from MAP×1.30/SV and may sit near the
-% model's contractility ceiling, producing weak or noisy gradients.
-% Override to a mid-range value where the optimizer can explore the
-% active gradient region more effectively.
-idx_emax = find(strcmp(opt_param_names, 'Emax_lv'));
-if ~isempty(idx_emax) && x0(idx_emax) > 15.0
-    x0(idx_emax) = 10.0;
-    fprintf('  [P03] Emax_lv x0 overridden to 10.0 (escape contractility saturation).\n');
 end
 
 fprintf('  Optimizing %d parameters:\n', length(opt_param_names));
