@@ -159,66 +159,155 @@ m = indices.model;   % Shorthand to simulated model outputs
 
 %% 6. Compute weighted normalized least-squares objective
 % -----------------------------------------------------------------------
-% J = Σ  w_i × ( (sim_i − clin_i) / clin_i )²
+% J = Σ  w_i × ( (sim_i − clin_i) / max(|clin_i|, ref_min) )²
 %
-% Each term is normalized by the clinical reference value so that all
-% outputs are dimensionless and on a comparable scale regardless of units.
-% Weights allow prioritizing clinically important targets.
+% For Patient 3, the active terms are MAP, SV, and dP_CoA_peak only.
+% All other weights are set to 0 in the optimization configuration.
+% Each term is guarded: weight > 0, clinical target finite and positive,
+% simulated value finite.
 
 J = 0;
+objective_breakdown = struct();
 
 % --- Mean Arterial Pressure ---
-% Clinical reference: clinical.P_ao_mean_mmHg
-if w.MAP > 0 && clinical.P_ao_mean_mmHg > 0
-    err_MAP = (m.P_ao_mean - clinical.P_ao_mean_mmHg) / clinical.P_ao_mean_mmHg;
-    J = J + w.MAP * err_MAP^2;
-end
-
-% --- Systolic Blood Pressure ---
-if w.SBP > 0 && clinical.P_ao_sys_mmHg > 0
-    err_SBP = (m.P_ao_sys - clinical.P_ao_sys_mmHg) / clinical.P_ao_sys_mmHg;
-    J = J + w.SBP * err_SBP^2;
-end
-
-% --- Diastolic Blood Pressure ---
-if w.DBP > 0 && clinical.P_ao_dia_mmHg > 0
-    err_DBP = (m.P_ao_dia - clinical.P_ao_dia_mmHg) / clinical.P_ao_dia_mmHg;
-    J = J + w.DBP * err_DBP^2;
+if isfield(w, 'MAP') && w.MAP > 0 && ...
+   isfield(clinical, 'P_ao_mean_mmHg') && isfinite(clinical.P_ao_mean_mmHg) && ...
+   clinical.P_ao_mean_mmHg > 0 && isfinite(m.P_ao_mean)
+    ref = max(abs(clinical.P_ao_mean_mmHg), 1.0);
+    err_MAP = (m.P_ao_mean - clinical.P_ao_mean_mmHg) / ref;
+    contrib_MAP = w.MAP * err_MAP^2;
+    J = J + contrib_MAP;
+    objective_breakdown.MAP.error                = err_MAP;
+    objective_breakdown.MAP.weighted_contribution = contrib_MAP;
 end
 
 % --- Stroke Volume ---
-if w.SV > 0 && clinical.SV_mL > 0
-    err_SV = (m.SV_lv - clinical.SV_mL) / clinical.SV_mL;
-    J = J + w.SV * err_SV^2;
+if isfield(w, 'SV') && w.SV > 0 && ...
+   isfield(clinical, 'SV_mL') && isfinite(clinical.SV_mL) && ...
+   clinical.SV_mL > 0 && isfinite(m.SV_lv)
+    ref = max(abs(clinical.SV_mL), 0.1);
+    err_SV = (m.SV_lv - clinical.SV_mL) / ref;
+    contrib_SV = w.SV * err_SV^2;
+    J = J + contrib_SV;
+    objective_breakdown.SV.error                = err_SV;
+    objective_breakdown.SV.weighted_contribution = contrib_SV;
 end
 
-% --- Pulse Pressure (SBP − DBP) --- identifiable via C_ao ---
-% PP = SBP − DBP ≈ SV / C_ao, so this term drives C_ao calibration.
-% Clinical target: from measured SSAP and SDAP.
+% --- CoA Pressure Gradient — Peak: asymmetric mild-zone penalty ---
+% For Patient 3, clinical.dP_coa_mmHg = 4.9 mmHg indicates mild/trivial CoA.
+% When coa_penalty_mode = 'mild_zone' and target < 10 mmHg:
+%   - Zero penalty if sim dP_CoA_peak <= coa_mild_upper_mmHg (10 mmHg)
+%   - Standard penalty on the excess above 10 mmHg
+%   - Barrier penalty if sim dP_CoA_peak > coa_hard_upper_mmHg (20 mmHg)
+% This prevents 4.9 mmHg from over-constraining MAP/SV optimization.
+if isfield(w, 'dP_CoA_peak') && w.dP_CoA_peak > 0 && ...
+   isfield(clinical, 'dP_coa_mmHg') && isfinite(clinical.dP_coa_mmHg) && ...
+   clinical.dP_coa_mmHg > 0 && ...
+   isfield(m, 'DeltaP_coa_peak') && isfinite(m.DeltaP_coa_peak)
+
+    sim_dP    = m.DeltaP_coa_peak;
+    target_dP = clinical.dP_coa_mmHg;
+
+    % Resolve penalty mode and thresholds from opt_config (with safe defaults)
+    coa_mode   = 'standard';
+    mild_upper = 10.0;
+    if isfield(opt_config, 'coa_penalty_mode'),    coa_mode   = opt_config.coa_penalty_mode;    end
+    if isfield(opt_config, 'coa_mild_upper_mmHg'), mild_upper = opt_config.coa_mild_upper_mmHg; end
+
+    if strcmpi(coa_mode, 'mild_zone') && target_dP < 10.0
+        % Mild/trivial clinical CoA — use asymmetric penalty
+        if sim_dP <= mild_upper
+            err_dP_CoA     = 0.0;
+            contrib_dP_CoA = 0.0;
+            penalty_reason = 'No penalty: simulated CoA gradient within mild zone';
+        else
+            err_dP_CoA     = (sim_dP - mild_upper) / max(mild_upper, 1.0);
+            contrib_dP_CoA = w.dP_CoA_peak * err_dP_CoA^2;
+            penalty_reason = 'Penalty applied: simulated CoA gradient exceeds mild-zone limit';
+        end
+
+        % Stronger barrier when approaching moderate threshold (20 mmHg)
+        contrib_barrier = 0.0;
+        if isfield(opt_config, 'coa_hard_upper_mmHg') && ...
+                sim_dP > opt_config.coa_hard_upper_mmHg
+            hard_upper      = opt_config.coa_hard_upper_mmHg;
+            err_barrier     = (sim_dP - hard_upper) / max(hard_upper, 1.0);
+            barrier_w       = 10.0;
+            if isfield(w, 'dP_CoA_barrier'), barrier_w = w.dP_CoA_barrier; end
+            contrib_barrier = barrier_w * err_barrier^2;
+            contrib_dP_CoA  = contrib_dP_CoA + contrib_barrier;
+            penalty_reason  = 'Strong penalty applied: simulated CoA gradient exceeds hard upper limit';
+        end
+    else
+        % Non-mild clinical CoA — standard normalized squared error
+        err_dP_CoA     = (sim_dP - target_dP) / max(abs(target_dP), 1.0);
+        contrib_dP_CoA = w.dP_CoA_peak * err_dP_CoA^2;
+        contrib_barrier = 0.0;
+        penalty_reason  = 'Standard normalized CoA gradient error';
+    end
+
+    J = J + contrib_dP_CoA;
+
+    objective_breakdown.dP_CoA_peak.simulated              = sim_dP;
+    objective_breakdown.dP_CoA_peak.target                 = target_dP;
+    objective_breakdown.dP_CoA_peak.error_used_in_objective = err_dP_CoA;
+    objective_breakdown.dP_CoA_peak.weighted_contribution  = contrib_dP_CoA;
+    objective_breakdown.dP_CoA_peak.barrier_contribution   = contrib_barrier;
+    objective_breakdown.dP_CoA_peak.penalty_mode           = coa_mode;
+    objective_breakdown.dP_CoA_peak.reason                 = penalty_reason;
+end
+
+% --- SBP (zero-weight for Patient 3; inactive) ---
+if isfield(w, 'SBP') && w.SBP > 0 && ...
+   isfield(clinical, 'P_ao_sys_mmHg') && isfinite(clinical.P_ao_sys_mmHg) && ...
+   clinical.P_ao_sys_mmHg > 0 && isfinite(m.P_ao_sys)
+    ref = max(abs(clinical.P_ao_sys_mmHg), 1.0);
+    err_SBP = (m.P_ao_sys - clinical.P_ao_sys_mmHg) / ref;
+    J = J + w.SBP * err_SBP^2;
+end
+
+% --- DBP (zero-weight for Patient 3; inactive) ---
+if isfield(w, 'DBP') && w.DBP > 0 && ...
+   isfield(clinical, 'P_ao_dia_mmHg') && isfinite(clinical.P_ao_dia_mmHg) && ...
+   clinical.P_ao_dia_mmHg > 0 && isfinite(m.P_ao_dia)
+    ref = max(abs(clinical.P_ao_dia_mmHg), 1.0);
+    err_DBP = (m.P_ao_dia - clinical.P_ao_dia_mmHg) / ref;
+    J = J + w.DBP * err_DBP^2;
+end
+
+% --- Pulse Pressure (zero-weight for Patient 3; inactive) ---
 if isfield(w, 'PP') && w.PP > 0
     clin_PP = clinical.P_ao_sys_mmHg - clinical.P_ao_dia_mmHg;
     sim_PP  = m.P_ao_sys - m.P_ao_dia;
-    if clin_PP > 0
-        err_PP = (sim_PP - clin_PP) / clin_PP;
+    if clin_PP > 0 && isfinite(sim_PP)
+        ref = max(abs(clin_PP), 1.0);
+        err_PP = (sim_PP - clin_PP) / ref;
         J = J + w.PP * err_PP^2;
     end
 end
 
-% --- PDA pressure gradient (Doppler-derived reference) ---
-% clinical.dP_pda_mmHg is the Bernoulli-derived PDA gradient from echo
-% Model: pressure difference across the PDA ≈ P_ao_mean − P_pa_mean
-if w.dP_PDA > 0 && clinical.dP_pda_mmHg > 0
+% --- PDA pressure gradient (zero-weight for Patient 3; inactive) ---
+if isfield(w, 'dP_PDA') && w.dP_PDA > 0 && ...
+   isfield(clinical, 'dP_pda_mmHg') && isfinite(clinical.dP_pda_mmHg) && ...
+   clinical.dP_pda_mmHg > 0
     sim_dP_pda = m.P_ao_mean - m.P_pa_mean;
-    err_dP_PDA = (sim_dP_pda - clinical.dP_pda_mmHg) / clinical.dP_pda_mmHg;
-    J = J + w.dP_PDA * err_dP_PDA^2;
+    if isfinite(sim_dP_pda)
+        ref = max(abs(clinical.dP_pda_mmHg), 1.0);
+        err_dP_PDA = (sim_dP_pda - clinical.dP_pda_mmHg) / ref;
+        J = J + w.dP_PDA * err_dP_PDA^2;
+    end
 end
 
-% --- CoA pressure gradient (Doppler-derived reference, if available) ---
-% clinical.dP_coa_mmHg is the measured echo CoA gradient (may be 0 if not measured)
-if w.dP_CoA > 0 && isfield(clinical, 'dP_coa_mmHg') && clinical.dP_coa_mmHg > 0
-    err_dP_CoA = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / clinical.dP_coa_mmHg;
-    J = J + w.dP_CoA * err_dP_CoA^2;
+% --- Legacy dP_CoA field (zero-weight; kept for backward compatibility) ---
+if isfield(w, 'dP_CoA') && w.dP_CoA > 0 && ...
+   isfield(clinical, 'dP_coa_mmHg') && isfinite(clinical.dP_coa_mmHg) && ...
+   clinical.dP_coa_mmHg > 0 && isfinite(m.DeltaP_coa_peak)
+    ref = max(abs(clinical.dP_coa_mmHg), 1.0);
+    err_dP_CoA_leg = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / ref;
+    J = J + w.dP_CoA * err_dP_CoA_leg^2;
 end
+
+objective_breakdown.total = J;
 
 %% 7. Pack simulated outputs for caller inspection
 % -----------------------------------------------------------------------
@@ -236,6 +325,7 @@ sim_outputs.Q_coa_fraction        = m.Q_coa_fraction;
 sim_outputs.predicted_CoA_severity= m.predicted_CoA_severity;
 sim_outputs.pda_modifier_note     = m.pda_modifier_note;
 sim_outputs.J                     = J;
+sim_outputs.objective_breakdown   = objective_breakdown;
 sim_outputs.t_sol  = t_sol;
 sim_outputs.X_sol  = X_sol;
 sim_outputs.params = params_coa;
