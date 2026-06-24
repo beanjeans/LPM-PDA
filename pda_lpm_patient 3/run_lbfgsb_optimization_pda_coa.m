@@ -14,17 +14,17 @@
 %   bounds — functionally equivalent to L-BFGS-B bounded optimization.
 %   ('interior-point' uses a limited-memory BFGS Hessian internally.)
 %
-% PARAMETERS OPTIMIZED (from Sobol GSA influential set):
-%   Emax_lv, stenosis_pct, R_systemic
-%   (C_ao, C_sys, R_pa, R_shunt_pda excluded — not in GSA 3-parameter set)
+% PARAMETERS OPTIMIZED (from Sobol GSA influential set + PDA-CoA physiology):
+%   Emax_lv, stenosis_pct, R_systemic, R_pa, R_shunt_pda
+%   (C_ao, C_sys excluded — not in this 5-parameter config)
 %   To change, edit Section A2 opt_param_names and A3 opt_bounds.
 %
 % PATIENT 3 CONFIGURATION:
 %   - Patient 3 has PDA and a valid measured CoA pressure gradient.
 %   - dPCoA = 4.9 mmHg is used as a direct clinical optimization target.
 %   - Objective is restricted to MAP, SV, and dP_CoA_peak only.
-%   - Other outputs (SBP, DBP, dP_PDA, Q_CoA/Q_total) are not direct
-%     targets in this 3-parameter setup and are excluded from the objective.
+%   - 5-parameter setup adds R_pa and R_shunt_pda for pulmonary/PDA flow
+%     redistribution. Do NOT apply this extended setup to Patient 1.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
 %   2. Build baseline model parameters
@@ -75,12 +75,14 @@ csv_path    = fullfile('config', 'patient_data.csv');
 patient_idx = 3;    % Patient row index in patient_data.csv (1-based)
 
 %% A2. Parameters to optimize (must match struct field names exactly)
-%  GSA-selected 3-parameter set for Patient 3.
-%  Do NOT add C_ao, C_sys, R_pa, or R_shunt_pda — not in this config.
+%  5-parameter set for Patient 3: GSA-selected base + pulmonary/PDA flow.
+%  Do NOT apply this extended setup to Patient 1.
 opt_param_names = {
     'Emax_lv'         % LV peak elastance                   [mmHg/mL]
     'stenosis_pct'    % CoA stenosis severity               [%]
     'R_systemic'      % Systemic vascular resistance        [mmHg·s/mL]
+    'R_pa'            % Pulmonary arterial resistance       [mmHg·s/mL]
+    'R_shunt_pda'     % PDA shunt resistance                [mmHg·s/mL]
 };
 
 %% A3. Parameter bounds  [lower, upper]
@@ -88,19 +90,21 @@ opt_param_names = {
 %  Chosen from physiological literature (neonatal/paediatric ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     25.0    % Emax_lv      [mmHg/mL]   — allometric ceiling
+    5.0,     40.0    % Emax_lv      [mmHg/mL]   — allometric range
     5.0,     99.0    % stenosis_pct [%]
-    0.05,    30.0    % R_systemic   [mmHg·s/mL] — physiological SVR range
+    1.0,     20.0    % R_systemic   [mmHg·s/mL] — physiological SVR range
+    0.05,     5.0    % R_pa         [mmHg·s/mL] — pulmonary arterial resistance
+    1.0,     15.0    % R_shunt_pda  [mmHg·s/mL] — PDA shunt resistance
 ];
-% C_ao, C_sys, R_pa, R_shunt_pda are NOT optimized for this Patient 3 config.
+% C_ao, C_sys are NOT optimized for this Patient 3 config.
 
 %% A4. Objective weights — Patient 3: MAP, SV, dP_CoA_peak (mild-zone)
 %  Patient 3 dPCoA = 4.9 mmHg indicates mild/trivial CoA.
 %  dP_CoA_peak uses an asymmetric mild-zone penalty so that MAP and SV
 %  can improve freely without being over-constrained by a 4.9 mmHg target.
-weights.MAP            = 5.0;   % Mean arterial pressure (primary clinical target)
+weights.MAP            = 8.0;   % Mean arterial pressure (primary clinical target)
 weights.SV             = 4.0;   % Stroke volume
-weights.dP_CoA_peak    = 3.0;   % CoA gradient — activates mild-zone penalty (see A4b)
+weights.dP_CoA_peak    = 2.0;   % CoA gradient — activates mild-zone penalty (see A4b)
 weights.dP_CoA_barrier = 10.0;  % Barrier weight if dP_CoA_peak > 20 mmHg
 
 weights.SBP            = 0.0;   % Not used — not a direct target for P03
@@ -121,7 +125,7 @@ coa_mild_upper_mmHg = 10.0;   % [mmHg] no penalty if sim dP_CoA_peak <= this
 coa_hard_upper_mmHg = 20.0;   % [mmHg] barrier penalty above this (mild/moderate threshold)
 
 %% A4c. Objective mode and primary metrics
-objective_mode = 'direct_targets_MAP_SV_CoA_mild_zone_P03';
+objective_mode = 'PDA_CoA_P03_extended_5param';
 primary_optimization_metrics = {'MAP', 'SV', 'dP_CoA_peak'};
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
@@ -142,13 +146,13 @@ penalty  = 1e6;   % Objective value returned on ODE/build failure
 fmincon_opts = optimoptions('fmincon', ...
     'Algorithm',              'interior-point', ...
     'Display',                'iter', ...
-    'MaxIterations',          200, ...
-    'MaxFunctionEvaluations', 2000, ...
+    'MaxIterations',          500, ...
+    'MaxFunctionEvaluations', 5000, ...
     'OptimalityTolerance',    1e-6, ...
-    'StepTolerance',          1e-8, ...
+    'StepTolerance',          1e-6, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [5.0, 50.0, 15.0], ...    % representative scale per param
-    'FiniteDifferenceStepSize', 1e-4, ...
+    'TypicalX',               [20.0, 50.0, 5.0, 0.5, 4.0], ...  % representative scale per param
+    'FiniteDifferenceStepSize', 5e-4, ...
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
@@ -450,7 +454,8 @@ save(mat_path, 'x_opt', 'x0', 'J_opt', 'J_baseline', 'J_final', ...
     'stenosis_opt', 'coa_length_opt', 'baseline_outputs', 'opt_outputs', ...
     'objective_mode', 'weights', 'primary_optimization_metrics', ...
     'coa_penalty_mode', 'coa_mild_upper_mmHg', 'coa_hard_upper_mmHg', ...
-    'objective_breakdown_baseline', 'objective_breakdown_final');
+    'objective_breakdown_baseline', 'objective_breakdown_final', ...
+    'opt_param_names', 'opt_bounds');
 fprintf('  Saved: %s\n\n', mat_path);
 
 % =========================================================================
@@ -471,7 +476,7 @@ fprintf('   OPTIMIZATION RESULTS: PRIMARY OPTIMIZATION OUTPUTS\n');
 fprintf('   Patient: %s\n', clinical.patient_id);
 fprintf('=========================================================================\n');
 fprintf('   Objective mode:    %s\n', objective_mode);
-fprintf('   Active parameters: Emax_lv, stenosis_pct, R_systemic\n');
+fprintf('   Active parameters: Emax_lv, stenosis_pct, R_systemic, R_pa, R_shunt_pda\n');
 fprintf('   Clinical targets:  MAP, SV, dP_CoA_peak\n');
 fprintf('   CoA penalty mode:  mild-zone asymmetric penalty\n');
 fprintf('   Clinical dP_CoA target: %.1f mmHg\n', clinical.dP_coa_mmHg);
