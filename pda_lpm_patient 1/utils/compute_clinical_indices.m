@@ -185,20 +185,22 @@ if params.scenario_coa && isfield(idx, 'P_ao_dist')
     model.pda_modifier_note = pda_note;
 
 else
-    % No CoA active — set all fields to neutral defaults
-    model.DeltaP_coa_mean        = 0;
-    model.DeltaP_coa_mean_sys    = 0;
-    model.DeltaP_coa_peak        = 0;
-    model.Q_coa_mean             = 0;
-    model.Q_coa_peak             = 0;
+    % PDA-only mode — set CoA fields to NaN to prevent misinterpretation as real clinical values.
+    % Zero (0) must NOT be used here: a zero gradient is a valid clinical measurement,
+    % whereas these patients simply have no CoA module active.
+    model.DeltaP_coa_mean        = NaN;
+    model.DeltaP_coa_mean_sys    = NaN;
+    model.DeltaP_coa_peak        = NaN;
+    model.Q_coa_mean             = NaN;
+    model.Q_coa_peak             = NaN;
     model.Q_coa_fraction         = NaN;
     model.P_ao_proximal_mean     = model.P_ao_mean;
     model.P_ao_distal_mean       = NaN;
-    model.stenosis_pct           = 0;
-    model.coa_length_mm          = 0;
-    model.coa_length_category    = 'N/A';
-    model.predicted_CoA_severity = 'N/A (PDA-only scenario)';
-    model.pda_modifier_note      = 'No CoA simulated';
+    model.stenosis_pct           = NaN;
+    model.coa_length_mm          = NaN;
+    model.coa_length_category    = 'N/A (PDA-only)';
+    model.predicted_CoA_severity = 'Not applicable';
+    model.pda_modifier_note      = 'No CoA simulated — PDA-only mode';
     % Backward-compatible aliases
     model.P_ao_dist_mean         = NaN;
     model.P_ao_dist_sys          = NaN;

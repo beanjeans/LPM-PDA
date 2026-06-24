@@ -1,31 +1,36 @@
 function plot_results(t_sol_pda, X_sol_pda, results_pda, ...
-                      coa_scenarios, patient_id)
+                      coa_scenarios, patient_id, params_pda)
 % PLOT_RESULTS
 % -----------------------------------------------------------------------
-% Generates publication-ready figures comparing PDA-only and virtual
-% CoA scenarios for a single patient.
+% Generates publication-ready figures for a single patient.
 %
-% Figures produced:
+% PDA-only patients (P01, P02 — coa_scenarios empty):
 %   Fig 1: Pressure waveforms (LV, Ao, PA) — PDA baseline
-%   Fig 2: PV loops — PDA baseline
+%   Fig 2: LV P-V loop — PDA baseline
+%   Fig 3: Primary outputs comparison: MAP and SV (clinical vs simulated)
+%          Title: "Primary LPM Outputs: MAP and SV"
+%
+% PDA-CoA patients (P03 — coa_scenarios non-empty):
+%   Fig 1: Pressure waveforms (LV, Ao, PA) — PDA baseline
+%   Fig 2: LV P-V loop — PDA baseline
 %   Fig 3: Trans-CoA gradient traces — all CoA scenarios
 %   Fig 4: Bar chart comparison: MAP, CO, SW_lv, DeltaP_coa across scenarios
-%   Fig 5: Flow distribution — PDA shunt vs systemic vs pulmonary
 %
 % INPUTS:
 %   t_sol_pda      - time vector for PDA-only solution              [s]
 %   X_sol_pda      - state matrix for PDA-only solution
 %   results_pda    - indices struct from compute_clinical_indices (PDA)
-%   coa_scenarios  - cell array of structs, each with fields:
-%                      .t_sol, .X_sol, .indices, .params, .label
+%   coa_scenarios  - cell array of CoA scenario structs (may be empty)
 %   patient_id     - patient identifier string                      [-]
+%   params_pda     - PDA parameter struct (required; used for state indices
+%                    and timing — avoids crash when coa_scenarios is empty)
 %
 % REFERENCES:
 %   [1] Guardrails §11 — publication-ready plot standards
 %
 % AUTHOR:   Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  1.0
+% VERSION:  2.0  — disease-mode routing; PDA-only primary outputs figure
 % -----------------------------------------------------------------------
 
 % Font settings (Guardrail §11.1)
@@ -43,13 +48,20 @@ col_coa  = [0.84, 0.37, 0.00];   % Red-orange — CoA gradient
 
 coa_line_styles = {'-', '--', '-.'};
 
-idx_pda  = results_pda.model;   % shorthand
+idx_pda  = results_pda.model;   % shorthand (model outputs, not state indices)
 
 %% =========================================================================
 %  FIGURE 1: PDA-BASELINE PRESSURE WAVEFORMS
 % =========================================================================
-params_pda = coa_scenarios{1}.params;  % pull params for index struct
-pda_idx    = params_pda.idx;
+% params_pda is passed as 6th argument; fall back to coa_scenarios if omitted
+if nargin < 6 || isempty(params_pda)
+    if ~isempty(coa_scenarios)
+        params_pda = coa_scenarios{1}.params;
+    else
+        error('plot_results: params_pda (6th argument) is required when coa_scenarios is empty.');
+    end
+end
+pda_idx = params_pda.idx;
 
 fig1 = figure('Units', 'centimeters', 'Position', [0 0 22 14], 'Color', 'w');
 sgtitle(sprintf('PDA Baseline Pressure Waveforms — Patient %s', patient_id), ...
@@ -142,11 +154,12 @@ title(sprintf('LV Pressure-Volume Loop (PDA Baseline) — %s', patient_id), ...
     'FontSize', font_sz_ti, 'FontName', font_name);
 grid on; set(gca, 'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
 
-%% =========================================================================
-%  FIGURE 3: TRANS-CoA GRADIENT TRACES (ALL CoA SCENARIOS)
-% =========================================================================
 if ~isempty(coa_scenarios)
-    fig3 = figure('Units', 'centimeters', 'Position', [0 0 22 10], 'Color', 'w');
+    %% =====================================================================
+    %  FIGURE 3: TRANS-CoA GRADIENT TRACES (PDA_CoA mode only)
+    % =====================================================================
+    fig3 = figure('Units', 'centimeters', 'Position', [0 0 22 10], 'Color', 'w', ...
+        'Name', 'Trans_CoA_Gradient');
     hold on;
     for s = 1:length(coa_scenarios)
         sc      = coa_scenarios{s};
@@ -168,7 +181,7 @@ if ~isempty(coa_scenarios)
     grid on; set(gca, 'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
 
     %% =====================================================================
-    %  FIGURE 4: BAR CHART COMPARISON — PDA vs CoA SCENARIOS
+    %  FIGURE 4: BAR CHART COMPARISON — PDA vs CoA SCENARIOS (PDA_CoA only)
     % =====================================================================
     all_scenarios  = [{struct('indices', results_pda, 'label', 'PDA Only')}, coa_scenarios];
     n_sc           = length(all_scenarios);
@@ -176,7 +189,7 @@ if ~isempty(coa_scenarios)
     MAP_vals       = zeros(1, n_sc);
     CO_vals        = zeros(1, n_sc);
     SW_vals        = zeros(1, n_sc);
-    dP_coa_vals    = zeros(1, n_sc);
+    dP_coa_vals    = NaN(1, n_sc);   % NaN so PDA-only baseline bar is absent
     Qp_Qs_vals     = zeros(1, n_sc);
 
     for s = 1:n_sc
@@ -185,11 +198,12 @@ if ~isempty(coa_scenarios)
         MAP_vals(s)    = sc_i.indices.model.P_ao_mean;
         CO_vals(s)     = sc_i.indices.model.CO_Lmin;
         SW_vals(s)     = sc_i.indices.model.SW_lv_J * 1000;   % → mJ for display
-        dP_coa_vals(s) = sc_i.indices.model.DeltaP_coa_mean;
+        dP_coa_vals(s) = sc_i.indices.model.DeltaP_coa_mean;  % NaN for PDA-only row
         Qp_Qs_vals(s)  = sc_i.indices.model.Qp_Qs;
     end
 
-    fig4 = figure('Units', 'centimeters', 'Position', [0 0 24 16], 'Color', 'w');
+    fig4 = figure('Units', 'centimeters', 'Position', [0 0 24 16], 'Color', 'w', ...
+        'Name', 'Scenario_Comparison');
     sgtitle(sprintf('Scenario Comparison — Patient %s', patient_id), ...
         'FontSize', font_sz_ti, 'FontName', font_name, 'FontWeight', 'bold');
 
@@ -199,16 +213,62 @@ if ~isempty(coa_scenarios)
     titles  = {'Mean Arterial Pressure', 'Cardiac Output', ...
                'LV Stroke Work', 'Mean Trans-CoA Gradient', 'Qp/Qs Ratio'};
 
-    for m = 1:5
-        subplot(2, 3, m);
-        bar(1:n_sc, metrics{m}, 'FaceColor', col_ao, 'EdgeColor', 'k');
+    for m_idx = 1:5
+        subplot(2, 3, m_idx);
+        bar(1:n_sc, metrics{m_idx}, 'FaceColor', col_ao, 'EdgeColor', 'k');
         set(gca, 'XTick', 1:n_sc, 'XTickLabel', labels, ...
             'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
         xtickangle(20);
-        ylabel(ylabels{m}, 'FontSize', font_sz_lb, 'FontName', font_name);
-        title(titles{m},   'FontSize', font_sz_ti, 'FontName', font_name);
+        ylabel(ylabels{m_idx}, 'FontSize', font_sz_lb, 'FontName', font_name);
+        title(titles{m_idx},   'FontSize', font_sz_ti, 'FontName', font_name);
         grid on;
     end
+
+else
+    %% =====================================================================
+    %  FIGURE 3 (PDA-only): PRIMARY OUTPUTS COMPARISON — MAP and SV
+    %  Only generated for PDA-only patients (no CoA scenarios).
+    %  Title: "Primary LPM Outputs: MAP and SV"
+    % =====================================================================
+    clin_vals  = results_pda.clinical;
+    m_pda_out  = results_pda.model;
+
+    fig3_pda = figure('Units', 'centimeters', 'Position', [0 0 18 10], 'Color', 'w', ...
+        'Name', 'Primary_LPM_Outputs_MAP_SV');
+    sgtitle(sprintf('Primary LPM Outputs: MAP and SV — Patient %s', patient_id), ...
+        'FontSize', font_sz_ti, 'FontName', font_name, 'FontWeight', 'bold');
+
+    % MAP: clinical vs simulated
+    subplot(1, 2, 1);
+    bar_map = bar([clin_vals.P_ao_mean_mmHg, m_pda_out.P_ao_mean], ...
+        'FaceColor', col_ao, 'EdgeColor', 'k');  %#ok<NASGU>
+    set(gca, 'XTick', 1:2, 'XTickLabel', {'Clinical', 'Simulated'}, ...
+        'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
+    ylabel('MAP [mmHg]', 'FontSize', font_sz_lb, 'FontName', font_name);
+    title('Mean Arterial Pressure', 'FontSize', font_sz_ti, 'FontName', font_name);
+    grid on;
+    map_pct_err = 100 * abs(m_pda_out.P_ao_mean - clin_vals.P_ao_mean_mmHg) ...
+                      / clin_vals.P_ao_mean_mmHg;
+    ylim_map = ylim;
+    text(1.5, ylim_map(1) + 0.92*(ylim_map(2)-ylim_map(1)), ...
+        sprintf('Err: %.1f%%', map_pct_err), ...
+        'HorizontalAlignment', 'center', 'FontSize', font_sz_ax, 'FontName', font_name);
+
+    % SV: clinical vs simulated
+    subplot(1, 2, 2);
+    bar_sv = bar([clin_vals.SV_mL, m_pda_out.SV_lv], ...
+        'FaceColor', col_lv, 'EdgeColor', 'k');  %#ok<NASGU>
+    set(gca, 'XTick', 1:2, 'XTickLabel', {'Clinical', 'Simulated'}, ...
+        'FontSize', font_sz_ax, 'FontName', font_name, 'Box', 'on');
+    ylabel('SV [mL]', 'FontSize', font_sz_lb, 'FontName', font_name);
+    title('Stroke Volume', 'FontSize', font_sz_ti, 'FontName', font_name);
+    grid on;
+    sv_pct_err = 100 * abs(m_pda_out.SV_lv - clin_vals.SV_mL) / clin_vals.SV_mL;
+    ylim_sv = ylim;
+    text(1.5, ylim_sv(1) + 0.92*(ylim_sv(2)-ylim_sv(1)), ...
+        sprintf('Err: %.1f%%', sv_pct_err), ...
+        'HorizontalAlignment', 'center', 'FontSize', font_sz_ax, 'FontName', font_name);
+
 end
 
 end
