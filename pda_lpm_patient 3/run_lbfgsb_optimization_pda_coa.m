@@ -94,26 +94,34 @@ opt_bounds = [
 ];
 % C_ao, C_sys, R_pa, R_shunt_pda are NOT optimized for this Patient 3 config.
 
-%% A4. Objective weights — Patient 3: MAP, SV, dP_CoA_peak only
-%  Patient 3 has a valid measured CoA gradient (dPCoA = 4.9 mmHg).
-%  The objective is restricted to MAP, SV, and dP_CoA_peak because these
-%  are the only certain direct clinical targets for this 3-parameter setup.
-%  Other outputs (SBP, DBP, dP_PDA, Q_CoA/Q_total) are not direct targets
-%  and are excluded from the objective.
-weights.MAP          = 5.0;   % Mean arterial pressure (primary clinical target)
-weights.SV           = 4.0;   % Stroke volume
-weights.dP_CoA_peak  = 3.0;   % CoA pressure gradient — dPCoA = 4.9 mmHg (measured)
+%% A4. Objective weights — Patient 3: MAP, SV, dP_CoA_peak (mild-zone)
+%  Patient 3 dPCoA = 4.9 mmHg indicates mild/trivial CoA.
+%  dP_CoA_peak uses an asymmetric mild-zone penalty so that MAP and SV
+%  can improve freely without being over-constrained by a 4.9 mmHg target.
+weights.MAP            = 5.0;   % Mean arterial pressure (primary clinical target)
+weights.SV             = 4.0;   % Stroke volume
+weights.dP_CoA_peak    = 3.0;   % CoA gradient — activates mild-zone penalty (see A4b)
+weights.dP_CoA_barrier = 10.0;  % Barrier weight if dP_CoA_peak > 20 mmHg
 
-weights.SBP          = 0.0;   % Not used — not a direct target for P03
-weights.DBP          = 0.0;   % Not used — not a direct target for P03
-weights.PP           = 0.0;   % Not used — C_ao not in optimization set
-weights.dP_PDA       = 0.0;   % Not used — not a direct target for P03
-weights.dP_CoA_mean  = 0.0;   % Not used — no measured mean-sys CoA gradient
-weights.Q_CoA_frac   = 0.0;   % Not used — not a direct target for P03
-weights.dP_CoA       = 0.0;   % Legacy field — inactive (use dP_CoA_peak instead)
+weights.SBP            = 0.0;   % Not used — not a direct target for P03
+weights.DBP            = 0.0;   % Not used — not a direct target for P03
+weights.PP             = 0.0;   % Not used — C_ao not in optimization set
+weights.dP_PDA         = 0.0;   % Not used — not a direct target for P03
+weights.dP_CoA_mean    = 0.0;   % Not used — no measured mean-sys CoA gradient
+weights.Q_CoA_frac     = 0.0;   % Not used — not a direct target for P03
+weights.dP_CoA         = 0.0;   % Legacy field — inactive (use dP_CoA_peak instead)
 
-%% A4b. Objective mode identifier and primary metric list
-objective_mode = 'direct_targets_MAP_SV_CoA_P03';
+%% A4b. CoA mild-zone penalty thresholds
+%  For Patient 3: dPCoA = 4.9 mmHg is mild/trivial.
+%  Zero penalty when sim dP_CoA_peak <= coa_mild_upper_mmHg.
+%  Standard penalty on excess above the mild-zone limit.
+%  Barrier penalty when sim dP_CoA_peak > coa_hard_upper_mmHg.
+coa_penalty_mode    = 'mild_zone';
+coa_mild_upper_mmHg = 10.0;   % [mmHg] no penalty if sim dP_CoA_peak <= this
+coa_hard_upper_mmHg = 20.0;   % [mmHg] barrier penalty above this (mild/moderate threshold)
+
+%% A4c. Objective mode and primary metrics
+objective_mode = 'direct_targets_MAP_SV_CoA_mild_zone_P03';
 primary_optimization_metrics = {'MAP', 'SV', 'dP_CoA_peak'};
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
@@ -289,15 +297,18 @@ lb = opt_bounds(:, 1);
 ub = opt_bounds(:, 2);
 
 % Build the config struct passed to the objective function
-opt_config.param_names   = opt_param_names;
-opt_config.fixed_params  = params_base;
-opt_config.clinical      = clinical;
-opt_config.stenosis_pct  = default_stenosis_pct;
-opt_config.coa_length_mm = default_coa_length_mm;
-opt_config.weights       = weights;
-opt_config.n_warmup      = n_warmup;
-opt_config.n_report      = n_report;
-opt_config.penalty       = penalty;
+opt_config.param_names      = opt_param_names;
+opt_config.fixed_params     = params_base;
+opt_config.clinical         = clinical;
+opt_config.stenosis_pct     = default_stenosis_pct;
+opt_config.coa_length_mm    = default_coa_length_mm;
+opt_config.weights          = weights;
+opt_config.n_warmup         = n_warmup;
+opt_config.n_report         = n_report;
+opt_config.penalty          = penalty;
+opt_config.coa_penalty_mode    = coa_penalty_mode;
+opt_config.coa_mild_upper_mmHg = coa_mild_upper_mmHg;
+opt_config.coa_hard_upper_mmHg = coa_hard_upper_mmHg;
 
 % Build initial guess x0 from the baseline params (centre of bounds where unknown)
 x0 = zeros(length(opt_param_names), 1);
@@ -438,6 +449,7 @@ save(mat_path, 'x_opt', 'x0', 'J_opt', 'J_baseline', 'J_final', ...
     'x_history', 'J_history', 'opt_config', 'clinical', 'params_opt', ...
     'stenosis_opt', 'coa_length_opt', 'baseline_outputs', 'opt_outputs', ...
     'objective_mode', 'weights', 'primary_optimization_metrics', ...
+    'coa_penalty_mode', 'coa_mild_upper_mmHg', 'coa_hard_upper_mmHg', ...
     'objective_breakdown_baseline', 'objective_breakdown_final');
 fprintf('  Saved: %s\n\n', mat_path);
 
@@ -458,16 +470,21 @@ fprintf('=======================================================================
 fprintf('   OPTIMIZATION RESULTS: PRIMARY OPTIMIZATION OUTPUTS\n');
 fprintf('   Patient: %s\n', clinical.patient_id);
 fprintf('=========================================================================\n');
-fprintf('   Objective mode: %s\n', objective_mode);
+fprintf('   Objective mode:    %s\n', objective_mode);
 fprintf('   Active parameters: Emax_lv, stenosis_pct, R_systemic\n');
-fprintf('   Clinical targets used in objective: MAP, SV, dP_CoA_peak\n');
-fprintf('   Clinical CoA gradient target: %.1f mmHg\n', clinical.dP_coa_mmHg);
+fprintf('   Clinical targets:  MAP, SV, dP_CoA_peak\n');
+fprintf('   CoA penalty mode:  mild-zone asymmetric penalty\n');
+fprintf('   Clinical dP_CoA target: %.1f mmHg\n', clinical.dP_coa_mmHg);
+fprintf('   Mild-zone upper limit:  %.1f mmHg\n', coa_mild_upper_mmHg);
 fprintf('=========================================================================\n\n');
 
-fprintf('   This optimization uses only MAP, SV, and measured dP_CoA_peak\n');
-fprintf('   as direct clinical targets.\n');
-fprintf('   Other model outputs are not included in the optimization or\n');
-fprintf('   final validation metrics for this configuration.\n\n');
+fprintf('   MAP and SV use standard normalized squared error.\n');
+fprintf('   dP_CoA_peak uses a mild-zone asymmetric penalty:\n');
+fprintf('     - Zero objective penalty if sim dP_CoA_peak <= %.1f mmHg\n', coa_mild_upper_mmHg);
+fprintf('     - Standard penalty on excess above %.1f mmHg\n', coa_mild_upper_mmHg);
+fprintf('     - Barrier penalty if sim dP_CoA_peak > %.1f mmHg\n', coa_hard_upper_mmHg);
+fprintf('   Other outputs (SBP, DBP, dP_PDA, Q_CoA/Q_total) are not included\n');
+fprintf('   in the optimization or final validation metrics.\n\n');
 
 % Helper for safe display
 def_nan = @(s, f) get_val_safe(s, f);
@@ -498,6 +515,21 @@ fprintf('  %-20s  %10.3f  %10.3f  %10.3f  %13.2f%%\n', 'SV (mL)', ...
 fprintf('  %-20s  %10.2f  %10.2f  %10.2f  %13.2f%%\n', 'dP_CoA_peak (mmHg)', ...
     dp_clinical, dp_pre, dp_post, pct_err(dp_post, dp_clinical));
 fprintf('  %s\n', repmat('-', 1, 72));
+fprintf('\n');
+
+% dP_CoA_peak penalty status detail
+dp_pct_clinical = pct_err(dp_post, dp_clinical);
+fprintf('  dP_CoA_peak objective detail:\n');
+fprintf('    Clinical target            = %.1f mmHg\n', dp_clinical);
+fprintf('    Simulated post-opt         = %.2f mmHg\n', dp_post);
+fprintf('    Clinical percent error     = %.2f%%\n', dp_pct_clinical);
+if dp_post <= coa_mild_upper_mmHg
+    fprintf('    Objective penalty          = 0  (simulated value within mild zone <= %.1f mmHg)\n', coa_mild_upper_mmHg);
+elseif dp_post <= coa_hard_upper_mmHg
+    fprintf('    Objective penalty          = active  (simulated value %.2f mmHg > mild-zone limit %.1f mmHg)\n', dp_post, coa_mild_upper_mmHg);
+else
+    fprintf('    Objective penalty          = BARRIER  (simulated value %.2f mmHg > hard limit %.1f mmHg)\n', dp_post, coa_hard_upper_mmHg);
+end
 fprintf('\n');
 
 fprintf('  Objective J:    Baseline = %.6f  |  Final = %.6f\n', J_baseline, J_final);

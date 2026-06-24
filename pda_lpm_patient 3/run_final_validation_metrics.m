@@ -114,11 +114,23 @@ else
     baseline_outputs = [];
 end
 
-% Load objective mode if present
+% Load objective mode
 if isfield(ws, 'objective_mode')
     objective_mode = ws.objective_mode;
 else
-    objective_mode = 'direct_targets_MAP_SV_CoA_P03';
+    objective_mode = 'direct_targets_MAP_SV_CoA_mild_zone_P03';
+end
+
+% Load CoA penalty settings
+coa_penalty_mode    = 'mild_zone';
+coa_mild_upper_mmHg = 10.0;
+if isfield(ws, 'coa_penalty_mode'),    coa_penalty_mode    = ws.coa_penalty_mode;    end
+if isfield(ws, 'coa_mild_upper_mmHg'), coa_mild_upper_mmHg = ws.coa_mild_upper_mmHg; end
+
+% Load objective breakdown for penalty contribution reporting
+obj_breakdown_final = [];
+if isfield(ws, 'objective_breakdown_final')
+    obj_breakdown_final = ws.objective_breakdown_final;
 end
 
 if isempty(opt_outputs)
@@ -192,15 +204,18 @@ n_metric_defs = size(metric_defs, 1);
 % =========================================================================
 fprintf('STEP 4: Extracting simulated and clinical values...\n\n');
 
-tbl_Metric           = cell(n_metric_defs, 1);
-tbl_ClinicalTarget   = NaN(n_metric_defs, 1);
-tbl_PreOptValue      = NaN(n_metric_defs, 1);
-tbl_PostOptValue     = NaN(n_metric_defs, 1);
-tbl_SignedError      = NaN(n_metric_defs, 1);
-tbl_AbsError         = NaN(n_metric_defs, 1);
-tbl_PercentError     = NaN(n_metric_defs, 1);
-tbl_Unit             = cell(n_metric_defs, 1);
-tbl_IncludedInObj    = true(n_metric_defs, 1);   % All three are in the objective
+tbl_Metric            = cell(n_metric_defs, 1);
+tbl_ClinicalTarget    = NaN(n_metric_defs, 1);
+tbl_PreOptValue       = NaN(n_metric_defs, 1);
+tbl_PostOptValue      = NaN(n_metric_defs, 1);
+tbl_SignedError       = NaN(n_metric_defs, 1);
+tbl_AbsError          = NaN(n_metric_defs, 1);
+tbl_PercentError      = NaN(n_metric_defs, 1);
+tbl_Unit              = cell(n_metric_defs, 1);
+tbl_IncludedInObj     = true(n_metric_defs, 1);   % All three are in the objective
+tbl_ObjPenaltyMode    = cell(n_metric_defs, 1);   % Penalty mode used in objective
+tbl_ObjPenaltyContrib = NaN(n_metric_defs, 1);    % Weighted contribution to J
+tbl_Reason            = cell(n_metric_defs, 1);    % Explanation of penalty applied
 
 for k = 1:n_metric_defs
     label         = metric_defs{k, 1};
@@ -237,6 +252,28 @@ for k = 1:n_metric_defs
         tbl_AbsError(k)     = abs_err;
         tbl_PercentError(k) = pct_err;
     end
+
+    % Extract objective penalty breakdown for this metric
+    tbl_ObjPenaltyMode{k}    = 'N/A';
+    tbl_ObjPenaltyContrib(k) = NaN;
+    tbl_Reason{k}            = '';
+    if isstruct(obj_breakdown_final) && ~isempty(obj_breakdown_final) && ...
+            isfield(obj_breakdown_final, label)
+        bd = obj_breakdown_final.(label);
+        if isfield(bd, 'weighted_contribution') && isnumeric(bd.weighted_contribution)
+            tbl_ObjPenaltyContrib(k) = bd.weighted_contribution;
+        end
+        if isfield(bd, 'penalty_mode') && (ischar(bd.penalty_mode) || isstring(bd.penalty_mode))
+            tbl_ObjPenaltyMode{k} = char(bd.penalty_mode);
+        else
+            tbl_ObjPenaltyMode{k} = 'standard_normalized';
+        end
+        if isfield(bd, 'reason') && (ischar(bd.reason) || isstring(bd.reason))
+            tbl_Reason{k} = char(bd.reason);
+        else
+            tbl_Reason{k} = sprintf('Standard normalized squared error (%s)', label);
+        end
+    end
 end
 
 % =========================================================================
@@ -261,6 +298,18 @@ else
     MeanPercentError_val = NaN;
 end
 
+% Objective penalty summary (actual J contributions, not clinical error)
+obj_valid_mask       = ~isnan(tbl_ObjPenaltyContrib);
+n_obj_valid          = sum(obj_valid_mask);
+obj_contribs_valid   = tbl_ObjPenaltyContrib(obj_valid_mask);
+if n_obj_valid > 0
+    TotalObjContrib_val = sum(obj_contribs_valid,  'omitnan');
+    MeanObjContrib_val  = mean(obj_contribs_valid, 'omitnan');
+else
+    TotalObjContrib_val = NaN;
+    MeanObjContrib_val  = NaN;
+end
+
 % =========================================================================
 %  STEP 6 — PRINT CONSOLE TABLE
 % =========================================================================
@@ -268,8 +317,9 @@ fprintf('=================================================================\n');
 fprintf('   DIRECT OPTIMIZATION OUTPUT METRICS — Patient %s\n', ...
     safe_get_str(clinical, 'patient_id', file_token));
 fprintf('   Objective mode: %s\n', objective_mode);
-fprintf('   Final validation metrics are computed only for direct\n');
-fprintf('   optimization outputs: MAP, SV, and dP_CoA_peak.\n');
+fprintf('   CoA penalty:    %s  (mild zone <= %.1f mmHg)\n', coa_penalty_mode, coa_mild_upper_mmHg);
+fprintf('   NOTE: For dP_CoA_peak, clinical error is reported vs 4.9 mmHg,\n');
+fprintf('   but the objective penalty is zero when sim value <= %.1f mmHg.\n', coa_mild_upper_mmHg);
 fprintf('=================================================================\n');
 
 col_w = [14, 12, 12, 12, 11, 11, 11, 7];
@@ -305,14 +355,39 @@ for k = 1:n_metric_defs
 end
 
 fprintf('%s\n', repmat('=', 1, length(hdr)));
-fprintf('\n  Summary Statistics (MAP, SV, dP_CoA_peak — %d metrics):\n', n_valid);
+
+fprintf('\n  CLINICAL AGREEMENT SUMMARY (raw error vs clinical targets):\n');
 fprintf('  %-28s  %10s\n', 'Statistic', 'Value');
 fprintf('  %s\n', repmat('-', 1, 42));
 fprintf('  %-28s  %10.4f\n', 'MAE (mixed units)',  MAE_val);
 fprintf('  %-28s  %10.4f\n', 'RMSE (mixed units)', RMSE_val);
 fprintf('  %-28s  %10.2f%%\n','Mean Percent Error', MeanPercentError_val);
-fprintf('  %-28s  %10d\n',   'N Metrics included', n_valid);
-fprintf('  %s\n', repmat('=', 1, 42));
+fprintf('  %-28s  %10d\n',   'N Metrics',          n_valid);
+fprintf('  %s\n', repmat('-', 1, 42));
+
+fprintf('\n  OBJECTIVE PENALTY SUMMARY (actual J contributions from optimization):\n');
+fprintf('  %-28s  %10s\n', 'Statistic', 'Value');
+fprintf('  %s\n', repmat('-', 1, 42));
+fprintf('  %-28s  %10.4f\n', 'Total J contribution',   TotalObjContrib_val);
+fprintf('  %-28s  %10.4f\n', 'Mean J contribution',    MeanObjContrib_val);
+fprintf('  %-28s  %10d\n',   'N active terms',         n_obj_valid);
+fprintf('  %s\n', repmat('-', 1, 42));
+fprintf('  dP_CoA_peak penalty mode: %s\n', coa_penalty_mode);
+fprintf('    Zero penalty if sim dP_CoA_peak <= %.1f mmHg.\n', coa_mild_upper_mmHg);
+fprintf('    Clinical error still reported vs %.1f mmHg.\n', ...
+    safe_get_num(clinical, 'dP_coa_mmHg', 4.9));
+
+% Show per-metric breakdown
+fprintf('\n  Per-metric objective contributions:\n');
+for k = 1:n_metric_defs
+    if ~isnan(tbl_ObjPenaltyContrib(k))
+        fprintf('    %-14s  J_contrib = %.4f  [%s]\n', ...
+            tbl_Metric{k}, tbl_ObjPenaltyContrib(k), tbl_Reason{k});
+    else
+        fprintf('    %-14s  J_contrib = N/A   [%s]\n', tbl_Metric{k}, tbl_ObjPenaltyMode{k});
+    end
+end
+
 fprintf('\n  Calibration objective J_final = %.6f\n\n', J_final);
 
 % =========================================================================
@@ -337,6 +412,9 @@ T_metrics = table( ...
     tbl_PercentError, ...
     tbl_Unit, ...
     tbl_IncludedInObj, ...
+    tbl_ObjPenaltyMode, ...
+    tbl_ObjPenaltyContrib, ...
+    tbl_Reason, ...
     'VariableNames', { ...
         'Metric', ...
         'ClinicalTarget', ...
@@ -346,7 +424,10 @@ T_metrics = table( ...
         'AbsError', ...
         'PercentError', ...
         'Unit', ...
-        'IncludedInObjective' ...
+        'IncludedInObjective', ...
+        'ObjectivePenaltyMode', ...
+        'ObjectivePenaltyContribution', ...
+        'Reason' ...
     });
 
 metrics_csv = fullfile(tables_dir, ...
@@ -356,8 +437,10 @@ fprintf('  Saved per-metric table:  %s\n', metrics_csv);
 
 % --- 7b. Summary table ---
 patient_id_cell = {safe_get_str(clinical, 'patient_id', file_token)};
-summary_notes   = sprintf('Direct targets only (MAP,SV,dP_CoA_peak); objective_mode=%s; J_final=%.6f; N=%d', ...
-                          objective_mode, J_final, n_valid);
+summary_notes   = sprintf(['Direct targets only (MAP,SV,dP_CoA_peak); objective_mode=%s; ' ...
+    'coa_penalty=%s(<=%.0fmmHg); J_final=%.6f; N=%d; ' ...
+    'For dP_CoA_peak: clinical error vs 4.9mmHg still reported but objective penalty=0 if sim<=%.0fmmHg'], ...
+    objective_mode, coa_penalty_mode, coa_mild_upper_mmHg, J_final, n_valid, coa_mild_upper_mmHg);
 
 T_summary = table( ...
     patient_id_cell, ...
@@ -384,11 +467,13 @@ fprintf('  Saved summary table:     %s\n', summary_csv);
 
 fprintf('\n');
 fprintf('=================================================================\n');
-fprintf('   VALIDATION METRICS COMPLETE\n');
-fprintf('   Patient: %s  |  N metrics: %d  |  Metrics: MAP, SV, dP_CoA_peak\n', ...
-    safe_get_str(clinical, 'patient_id', file_token), n_valid);
-fprintf('   MAE = %.4f  |  RMSE = %.4f  |  MeanPctErr = %.2f%%\n', ...
+fprintf('   VALIDATION METRICS COMPLETE — Patient %s\n', ...
+    safe_get_str(clinical, 'patient_id', file_token));
+fprintf('   Metrics: MAP, SV, dP_CoA_peak  |  N = %d\n', n_valid);
+fprintf('   Clinical agreement: MAE=%.4f | RMSE=%.4f | MeanPctErr=%.2f%%\n', ...
     MAE_val, RMSE_val, MeanPercentError_val);
+fprintf('   Objective penalty:  TotalJ=%.4f | MeanJ=%.4f | CoAPenalty=%s\n', ...
+    TotalObjContrib_val, MeanObjContrib_val, coa_penalty_mode);
 fprintf('=================================================================\n\n');
 
 

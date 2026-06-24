@@ -193,17 +193,68 @@ if isfield(w, 'SV') && w.SV > 0 && ...
     objective_breakdown.SV.weighted_contribution = contrib_SV;
 end
 
-% --- CoA Pressure Gradient — Peak (measured clinical target for Patient 3) ---
-% Uses w.dP_CoA_peak (new field). For Patient 3: clinical.dP_coa_mmHg = 4.9 mmHg.
+% --- CoA Pressure Gradient — Peak: asymmetric mild-zone penalty ---
+% For Patient 3, clinical.dP_coa_mmHg = 4.9 mmHg indicates mild/trivial CoA.
+% When coa_penalty_mode = 'mild_zone' and target < 10 mmHg:
+%   - Zero penalty if sim dP_CoA_peak <= coa_mild_upper_mmHg (10 mmHg)
+%   - Standard penalty on the excess above 10 mmHg
+%   - Barrier penalty if sim dP_CoA_peak > coa_hard_upper_mmHg (20 mmHg)
+% This prevents 4.9 mmHg from over-constraining MAP/SV optimization.
 if isfield(w, 'dP_CoA_peak') && w.dP_CoA_peak > 0 && ...
    isfield(clinical, 'dP_coa_mmHg') && isfinite(clinical.dP_coa_mmHg) && ...
-   clinical.dP_coa_mmHg > 0 && isfinite(m.DeltaP_coa_peak)
-    ref = max(abs(clinical.dP_coa_mmHg), 1.0);
-    err_dP_CoA = (m.DeltaP_coa_peak - clinical.dP_coa_mmHg) / ref;
-    contrib_dP = w.dP_CoA_peak * err_dP_CoA^2;
-    J = J + contrib_dP;
-    objective_breakdown.dP_CoA_peak.error                = err_dP_CoA;
-    objective_breakdown.dP_CoA_peak.weighted_contribution = contrib_dP;
+   clinical.dP_coa_mmHg > 0 && ...
+   isfield(m, 'DeltaP_coa_peak') && isfinite(m.DeltaP_coa_peak)
+
+    sim_dP    = m.DeltaP_coa_peak;
+    target_dP = clinical.dP_coa_mmHg;
+
+    % Resolve penalty mode and thresholds from opt_config (with safe defaults)
+    coa_mode   = 'standard';
+    mild_upper = 10.0;
+    if isfield(opt_config, 'coa_penalty_mode'),    coa_mode   = opt_config.coa_penalty_mode;    end
+    if isfield(opt_config, 'coa_mild_upper_mmHg'), mild_upper = opt_config.coa_mild_upper_mmHg; end
+
+    if strcmpi(coa_mode, 'mild_zone') && target_dP < 10.0
+        % Mild/trivial clinical CoA — use asymmetric penalty
+        if sim_dP <= mild_upper
+            err_dP_CoA     = 0.0;
+            contrib_dP_CoA = 0.0;
+            penalty_reason = 'No penalty: simulated CoA gradient within mild zone';
+        else
+            err_dP_CoA     = (sim_dP - mild_upper) / max(mild_upper, 1.0);
+            contrib_dP_CoA = w.dP_CoA_peak * err_dP_CoA^2;
+            penalty_reason = 'Penalty applied: simulated CoA gradient exceeds mild-zone limit';
+        end
+
+        % Stronger barrier when approaching moderate threshold (20 mmHg)
+        contrib_barrier = 0.0;
+        if isfield(opt_config, 'coa_hard_upper_mmHg') && ...
+                sim_dP > opt_config.coa_hard_upper_mmHg
+            hard_upper      = opt_config.coa_hard_upper_mmHg;
+            err_barrier     = (sim_dP - hard_upper) / max(hard_upper, 1.0);
+            barrier_w       = 10.0;
+            if isfield(w, 'dP_CoA_barrier'), barrier_w = w.dP_CoA_barrier; end
+            contrib_barrier = barrier_w * err_barrier^2;
+            contrib_dP_CoA  = contrib_dP_CoA + contrib_barrier;
+            penalty_reason  = 'Strong penalty applied: simulated CoA gradient exceeds hard upper limit';
+        end
+    else
+        % Non-mild clinical CoA — standard normalized squared error
+        err_dP_CoA     = (sim_dP - target_dP) / max(abs(target_dP), 1.0);
+        contrib_dP_CoA = w.dP_CoA_peak * err_dP_CoA^2;
+        contrib_barrier = 0.0;
+        penalty_reason  = 'Standard normalized CoA gradient error';
+    end
+
+    J = J + contrib_dP_CoA;
+
+    objective_breakdown.dP_CoA_peak.simulated              = sim_dP;
+    objective_breakdown.dP_CoA_peak.target                 = target_dP;
+    objective_breakdown.dP_CoA_peak.error_used_in_objective = err_dP_CoA;
+    objective_breakdown.dP_CoA_peak.weighted_contribution  = contrib_dP_CoA;
+    objective_breakdown.dP_CoA_peak.barrier_contribution   = contrib_barrier;
+    objective_breakdown.dP_CoA_peak.penalty_mode           = coa_mode;
+    objective_breakdown.dP_CoA_peak.reason                 = penalty_reason;
 end
 
 % --- SBP (zero-weight for Patient 3; inactive) ---

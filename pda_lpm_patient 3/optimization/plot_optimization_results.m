@@ -166,6 +166,20 @@ for i = 1:n_targets
     end
 end
 
+% Annotate mild-zone threshold on the dP_CoA_peak bar (index 3)
+hold on;
+coa_mild_limit = 10.0;  % mmHg — mild-zone upper limit
+x_coa = 3;              % dP_CoA_peak is the 3rd bar group
+plot([x_coa - 0.4, x_coa + 0.4], [coa_mild_limit, coa_mild_limit], ...
+    '--', 'Color', [0.55 0.20 0.55], 'LineWidth', 1.5);
+text(x_coa + 0.42, coa_mild_limit, 'mild zone \leq 10 mmHg', ...
+    'FontSize', 7, 'Color', [0.55 0.20 0.55], ...
+    'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
+text(x_coa, -max(clinical_vals) * 0.08, 'dP_{CoA} objective: zero penalty if \leq 10 mmHg', ...
+    'FontSize', 7, 'Color', [0.55 0.20 0.55], ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'top', 'Units', 'data');
+hold off;
+
 fig2_path = fullfile(results_dir, 'opt_clinical_comparison.png');
 exportgraphics(fig2, fig2_path, 'Resolution', 300);
 fprintf('  Saved: %s\n', fig2_path);
