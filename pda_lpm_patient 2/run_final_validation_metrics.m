@@ -118,7 +118,7 @@ fprintf('  Final optimisation objective J = %.6f\n\n', J_final);
 fprintf('STEP 2: Reading patient data CSV...\n');
 
 csv_path = fullfile('config', 'patient_data.csv');
-patient_idx = NaN;   % Default if CSV unavailable
+patient_idx = 2;   % Default if CSV unavailable
 
 if ~exist(csv_path, 'file')
     fprintf('  WARNING: patient_data.csv not found at: %s\n', csv_path);
