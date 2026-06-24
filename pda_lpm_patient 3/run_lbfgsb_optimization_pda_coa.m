@@ -93,7 +93,7 @@ opt_bounds = [
     5.0,     40.0    % Emax_lv      [mmHg/mL]   — allometric range
     5.0,     99.0    % stenosis_pct [%]
     1.0,     20.0    % R_systemic   [mmHg·s/mL] — physiological SVR range
-    0.05,     5.0    % R_pa         [mmHg·s/mL] — pulmonary arterial resistance
+    0.05,    12.0    % R_pa         [mmHg·s/mL] — pulmonary arterial resistance
     1.0,     15.0    % R_shunt_pda  [mmHg·s/mL] — PDA shunt resistance
 ];
 % C_ao, C_sys are NOT optimized for this Patient 3 config.
@@ -102,15 +102,15 @@ opt_bounds = [
 %  Patient 3 dPCoA = 4.9 mmHg indicates mild/trivial CoA.
 %  dP_CoA_peak uses an asymmetric mild-zone penalty so that MAP and SV
 %  can improve freely without being over-constrained by a 4.9 mmHg target.
-weights.MAP            = 8.0;   % Mean arterial pressure (primary clinical target)
-weights.SV             = 4.0;   % Stroke volume
+weights.MAP            = 12.0;   % Mean arterial pressure (primary clinical target)
+weights.SV             = 5.0;   % Stroke volume
 weights.dP_CoA_peak    = 2.0;   % CoA gradient — activates mild-zone penalty (see A4b)
-weights.dP_CoA_barrier = 10.0;  % Barrier weight if dP_CoA_peak > 20 mmHg
+weights.dP_CoA_barrier = 0.0;  % Barrier weight if dP_CoA_peak > 20 mmHg
 
 weights.SBP            = 0.0;   % Not used — not a direct target for P03
 weights.DBP            = 0.0;   % Not used — not a direct target for P03
 weights.PP             = 0.0;   % Not used — C_ao not in optimization set
-weights.dP_PDA         = 0.0;   % Not used — not a direct target for P03
+weights.dP_PDA         = 0.0;   % Not used
 weights.dP_CoA_mean    = 0.0;   % Not used — no measured mean-sys CoA gradient
 weights.Q_CoA_frac     = 0.0;   % Not used — not a direct target for P03
 weights.dP_CoA         = 0.0;   % Legacy field — inactive (use dP_CoA_peak instead)
@@ -148,11 +148,11 @@ fmincon_opts = optimoptions('fmincon', ...
     'Display',                'iter', ...
     'MaxIterations',          500, ...
     'MaxFunctionEvaluations', 5000, ...
-    'OptimalityTolerance',    1e-6, ...
-    'StepTolerance',          1e-6, ...
+    'OptimalityTolerance',    1e-7, ...   % Buat lebih ketat (sebelumnya 1e-6)
+    'StepTolerance',          1e-8, ...   % Paksa mesin terus melangkah (sebelumnya 1e-6)
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [20.0, 50.0, 5.0, 0.5, 4.0], ...  % representative scale per param
-    'FiniteDifferenceStepSize', 5e-4, ...
+    'TypicalX',               [20.0, 50.0, 5.0, 1.0, 4.0], ... 
+    'FiniteDifferenceStepSize', 1e-4, ... % Perkecil ukuran langkah tebakan
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
@@ -253,7 +253,7 @@ params_base.R_pv_veins = params_base.R_pa;
 % Allometric gives C_sys ≈ 0.005 mL/mmHg — starves LV preload (SV ≈ 1.5 mL).
 % Clinical estimate: C_sys ≈ SV / (MAP - P_ra_ref),  P_ra_ref = 4 mmHg.
 C_sys_clinical          = clinical.SV_mL / max(clinical.P_ao_mean_mmHg - 4, 1);
-params_base.C_sys       = max(0.05, min(0.5, C_sys_clinical));
+params_base.C_sys       = 0.035;
 
 P_lv_target    = clinical.P_ao_mean_mmHg * 1.30;
 params_base.Emax_lv = max(3.0, min(20.0, P_lv_target / clinical.SV_mL));
