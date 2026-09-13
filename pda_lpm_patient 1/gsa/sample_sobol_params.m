@@ -130,10 +130,6 @@ catch ME
 end
 
 
-%% 3. Split into base matrices A and B
-U_A = U(1:N, :);       % N × D in [0,1]
-U_B = U(N+1:2*N, :);   % N × D in [0,1]
-
 %% 4. Construct Saltelli sampling scheme
 % -----------------------------------------------------------------------
 % Stack: [A; B; AB_1; AB_2; ... AB_D]
