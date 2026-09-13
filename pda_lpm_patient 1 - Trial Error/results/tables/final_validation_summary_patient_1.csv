@@ -1,0 +1,2 @@
+PatientID,PatientIdx,NMetrics,MAE,RMSE,MeanPercentError,Notes
+P01,1,2,2.5128034633292,3.40248498060088,8.31860610944593,Direct optimization outputs MAP+SV only; J_final=0.089706; N_valid=2

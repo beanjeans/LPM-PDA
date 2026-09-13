@@ -1,0 +1,3 @@
+Metric,ClinicalTarget,PreOptValue,SignedError,AbsError,PercentError,Unit,IncludedInObjective,Notes
+MAP,37,32.1931340270832,-4.8068659729168,4.8068659729168,12.9915296565319,mmHg,true,Mean arterial pressure; direct target (w=5.0)
+SV,6,5.7812590462584,-0.218740953741597,0.218740953741597,3.64568256235995,mL,true,Stroke volume; direct target (w=4.0)

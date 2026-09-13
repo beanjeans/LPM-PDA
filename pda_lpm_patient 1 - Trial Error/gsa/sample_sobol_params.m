@@ -26,9 +26,9 @@ function [X_all, param_names, param_bounds, n_total, sample_info] = sample_sobol
 %
 % INPUTS:
 %   N  - base sample size (e.g. 256 or 512)
-%        Total model evaluations = N × (D + 2) where D = 8
-%        → N=256: 2560 evaluations
-%        → N=512: 5120 evaluations
+%     - Total evaluations: N × (D + 2)
+%       (N for A, N for B, and N×D for AB_i)
+%     - BA_i matrices are not generated.
 %
 % OUTPUTS:
 %   X_all        - (n_total × D) matrix of parameter samples,
@@ -90,11 +90,7 @@ fprintf('  Parameters (D):     %d\n', D);
 fprintf('  Base sample (N):    %d\n', N);
 fprintf('  Total evaluations:  N × (D+2) = %d\n', N * (D + 2));
 
-%% 2. Generate quasi-random base samples in [0,1]^D
-% -----------------------------------------------------------------------
-% Use MATLAB's Sobol quasi-random sequence (sobolset) for low-discrepancy
-% sampling. Skip the first point (origin) and leap for better uniformity.
-% -----------------------------------------------------------------------
+%% 2. Generate reproducible Sobol base matrices
 sampling_seed = 42;
 
 rng_state_before_sampling = rng;
@@ -128,11 +124,6 @@ catch ME
     sampler_name = 'rand';
     scramble_method = 'none';
 end
-
-
-%% 3. Split into base matrices A and B
-U_A = U(1:N, :);       % N × D in [0,1]
-U_B = U(N+1:2*N, :);   % N × D in [0,1]
 
 %% 4. Construct Saltelli sampling scheme
 % -----------------------------------------------------------------------
