@@ -51,7 +51,6 @@ for k = 1:length(opt_config.param_names)
             params_opt.Emin_rv = params_opt.Emin_lv;
         case 'Emin_lv'
             params_opt.Emin_lv = val;
-            params_opt.Emin_rv = val;
         case 'stenosis_pct'
             stenosis_opt = val;
         case 'coa_length_mm'
@@ -78,6 +77,12 @@ params_opt.R_pa        = max(0.001, params_opt.R_pa);
 params_opt.R_shunt_pda = max(0.01, params_opt.R_shunt_pda);
 stenosis_opt           = max(0.1, min(99.9, stenosis_opt));
 coa_length_opt         = max(0.1, coa_length_opt);
+
+if params_opt.Emin_lv >= params_opt.Emax_lv
+    error('APPLY_OPTIMIZED_PARAMS:InvalidElastance', ...
+        'Emin_lv (%.4g) must be smaller than Emax_lv (%.4g).', ...
+        params_opt.Emin_lv, params_opt.Emax_lv);
+end
 
 fprintf('  [apply_optimized_params] Parameters applied successfully.\n');
 

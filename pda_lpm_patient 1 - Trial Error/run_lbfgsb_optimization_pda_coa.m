@@ -7,9 +7,8 @@
 %   by minimizing a weighted normalized least-squares error between
 %   simulated and clinical haemodynamic measurements.
 %
-%   Objective (Patient 1 — PDA-only, direct targets only):
-%     J = w_MAP * ((sim_MAP - clin_MAP) / max(|clin_MAP|, 1.0))^2
-%       + w_SV  * ((sim_SV  - clin_SV)  / max(|clin_SV|,  0.1))^2
+%   Expanded objective: MAP, SV, SBP, DBP, PDA gradient and, when
+%   measured, CoA gradient, Qp/Qs, LV EF, and LV EDV.
 %
 %   Uses MATLAB fmincon with the 'interior-point' algorithm and parameter
 %   bounds — functionally equivalent to L-BFGS-B bounded optimization.
@@ -88,29 +87,34 @@ opt_param_names = {
 %  Physiological neonatal bounds (matching allometric scaling ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     40.0   % Emax_lv      [mmHg/mL]
+    3.0,     20.0   % Emax_lv      [mmHg/mL]
     0.01,    2.0    % Emin_lv      [mmHg/mL]
-    5.0,     99.0   % stenosis_pct [%]
-    1.0,     20.0   % R_systemic   [mmHg·s/mL]
-    0.5,     15.0   % R_shunt_pda  [mmHg·s/mL]
-    0.05,    12.0   % R_pa         [mmHg·s/mL]
-    0.01,    0.5    % C_sys        [mL/mmHg]
-    0.0001,  0.005  % C_ao         [mL/mmHg]
+    10.0,    95.0   % stenosis_pct [%]
+    1.0,     15.0   % R_systemic   [mmHg·s/mL]
+    0.5,     20.0   % R_shunt_pda  [mmHg·s/mL]
+    0.05,    1.0    % R_pa         [mmHg·s/mL]
+    0.05,    0.5    % C_sys        [mL/mmHg]
+    0.0001,  0.002  % C_ao         [mL/mmHg]
 ];
 
 %% A4. Objective mode and weights
 objective_mode = 'expanded_physiological_targets';
-primary_optimization_metrics = {'MAP', 'SV', 'SBP', 'DBP', 'dP_PDA'};
+primary_optimization_metrics = {'MAP', 'SV', 'SBP', 'DBP', 'dP_PDA', ...
+    'dP_CoA_peak', 'Qp_Qs', 'EF_lv', 'EDV_lv'};
 
 weights.MAP          = 10.0;  % Primary systemic pressure target
 weights.SV           = 6.0;   % Primary stroke volume target
 weights.SBP          = 4.0;   % Constrains systolic peak and elastance
 weights.DBP          = 4.0;   % Constrains diastolic decay and compliance
-weights.PP           = 2.0;   % Pulse pressure constraint (SBP - DBP)
+weights.PP           = 0.0;   % Avoid double-counting SBP and DBP
 weights.dP_PDA       = 3.0;   % Ductal pressure gradient (prevents runaway shunt)
 weights.dP_CoA_peak  = 2.0;   % Enabled for patients with measured CoA gradient (e.g. Patient 3)
 weights.dP_CoA_mean  = 0.0;   % Disabled
 weights.Q_CoA_frac   = 0.0;   % Disabled
+weights.Qp_Qs        = 3.0;   % Active only when a measured target exists
+weights.EF_lv        = 2.0;   % Active only when a measured target exists
+weights.EDV_lv       = 2.0;   % Active only when a measured target exists
+weights.parameter_prior = 0.1; % Weak regularization for identifiability
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
 default_stenosis_pct   = 50.0;   % [%]  — starting geometry
@@ -180,6 +184,12 @@ clinical.dP_aov_mmHg        = row.dPAoV(1);
 clinical.dP_pv_mmHg         = row.dPPV(1);
 clinical.dP_pda_mmHg        = row.dPPDA(1);
 clinical.dP_coa_mmHg        = row.dPCoA(1);
+
+% Optional measured targets. If these columns are absent, the target is
+% NaN and the objective function excludes it automatically.
+clinical.Qp_Qs     = table_value_or_nan(row, {'QpQs','Qp_Qs'});
+clinical.EF_lv_pct = table_value_or_nan(row, {'LVEF','EF','EF_lv'});
+clinical.EDV_lv_mL = table_value_or_nan(row, {'LVEDV','EDV_lv','EDV'});
 
 CO_mLs = (clinical.SV_mL * clinical.HR_bpm) / 60;
 clinical.CO_Lmin = CO_mLs * (60 / 1000);
@@ -304,6 +314,11 @@ for k = 1:length(opt_param_names)
     % Clamp x0 to bounds
     x0(k) = max(lb(k), min(ub(k), x0(k)));
 end
+
+% Baseline-centred weak prior used to stabilize the expanded parameter set.
+opt_config.x_reference = x0;
+opt_config.lb = lb;
+opt_config.ub = ub;
 
 fprintf('  Optimizing %d parameters:\n', length(opt_param_names));
 fprintf('  %-18s  %10s  %8s  %8s\n', 'Parameter', 'x0', 'LB', 'UB');
@@ -448,9 +463,9 @@ fprintf('   Patient: %s\n', clinical.patient_id);
 fprintf('=========================================================================\n\n');
 
 fprintf('  Objective mode:  %s\n', objective_mode);
-fprintf('  Active params:   Emax_lv, stenosis_pct, R_systemic\n');
-fprintf('  Clinical targets used in objective: MAP, SV\n');
-fprintf('  No measured CoA target is used for this PDA-only patient.\n');
+fprintf('  Active params:   %s\n', strjoin(opt_param_names, ', '));
+fprintf('  Core targets:    MAP, SV, SBP, DBP, dP_PDA\n');
+fprintf('  Optional targets are used only when measured and available.\n');
 fprintf('\n');
 
 % Helper for safe display
@@ -461,11 +476,20 @@ map_pre  = def_nan(baseline_outputs, 'P_ao_mean');
 map_post = def_nan(opt_outputs,      'P_ao_mean');
 sv_pre   = def_nan(baseline_outputs, 'SV_lv');
 sv_post  = def_nan(opt_outputs,      'SV_lv');
+sbp_pre  = def_nan(baseline_outputs, 'P_ao_sys');
+sbp_post = def_nan(opt_outputs,      'P_ao_sys');
+dbp_pre  = def_nan(baseline_outputs, 'P_ao_dia');
+dbp_post = def_nan(opt_outputs,      'P_ao_dia');
+pda_pre  = def_nan(baseline_outputs, 'dP_PDA_peak');
+pda_post = def_nan(opt_outputs,      'dP_PDA_peak');
 
 map_err_pre  = 100 * (map_pre  - clinical.P_ao_mean_mmHg) / max(abs(clinical.P_ao_mean_mmHg), 1.0);
 map_err_post = 100 * (map_post - clinical.P_ao_mean_mmHg) / max(abs(clinical.P_ao_mean_mmHg), 1.0);
 sv_err_pre   = 100 * (sv_pre   - clinical.SV_mL)          / max(abs(clinical.SV_mL), 0.1);
 sv_err_post  = 100 * (sv_post  - clinical.SV_mL)          / max(abs(clinical.SV_mL), 0.1);
+sbp_err_post = 100 * (sbp_post - clinical.P_ao_sys_mmHg)  / max(abs(clinical.P_ao_sys_mmHg), 1.0);
+dbp_err_post = 100 * (dbp_post - clinical.P_ao_dia_mmHg)  / max(abs(clinical.P_ao_dia_mmHg), 1.0);
+pda_err_post = 100 * (pda_post - clinical.dP_pda_mmHg)    / max(abs(clinical.dP_pda_mmHg), 0.5);
 
 fprintf('  %-10s  %12s  %12s  %12s  %14s\n', ...
     'Target', 'Clinical', 'Pre-Opt', 'Post-Opt', 'Error Post-Opt');
@@ -474,6 +498,12 @@ fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
     'MAP (mmHg)', clinical.P_ao_mean_mmHg, map_pre, map_post, map_err_post);
 fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
     'SV (mL)',    clinical.SV_mL,          sv_pre,  sv_post,  sv_err_post);
+fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
+    'SBP', clinical.P_ao_sys_mmHg, sbp_pre, sbp_post, sbp_err_post);
+fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
+    'DBP', clinical.P_ao_dia_mmHg, dbp_pre, dbp_post, dbp_err_post);
+fprintf('  %-10s  %12.2f  %12.2f  %12.2f  %13.2f%%\n', ...
+    'dP PDA', clinical.dP_pda_mmHg, pda_pre, pda_post, pda_err_post);
 fprintf('  %s\n', repmat('-', 1, 66));
 fprintf('\n');
 fprintf('  Objective J:    Baseline = %.6f  |  Final = %.6f\n', J_baseline, J_final);
@@ -483,9 +513,7 @@ fprintf('  Optimized parameters:\n');
 fprintf('    stenosis_pct  = %.2f%%\n', stenosis_opt);
 fprintf('    coa_length_mm = %.2f mm  (fixed geometry; not optimized)\n', coa_length_opt);
 fprintf('\n');
-fprintf('  This optimization uses only MAP and SV as direct clinical targets.\n');
-fprintf('  Other model outputs are not included in the optimization or final\n');
-fprintf('  validation metrics for this configuration.\n');
+fprintf('  Expanded physiological targets and weak parameter priors were used.\n');
 fprintf('\n');
 fprintf('  Results saved to: %s/\n', results_dir);
 fprintf('=========================================================================\n');
@@ -532,4 +560,20 @@ function val = get_str_safe(s, fname)
     else
         val = 'N/A';
     end
+end
+
+function value = table_value_or_nan(row, candidate_names)
+% Return the first finite numeric value from any matching table variable.
+value = NaN;
+names = row.Properties.VariableNames;
+for k = 1:numel(candidate_names)
+    idx = find(strcmpi(names, candidate_names{k}), 1);
+    if ~isempty(idx)
+        raw = row{1, idx};
+        if isnumeric(raw) && isscalar(raw) && isfinite(raw)
+            value = raw;
+            return;
+        end
+    end
+end
 end

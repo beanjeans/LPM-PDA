@@ -2,18 +2,9 @@ function [J, sim_outputs] = objective_lbfgsb_pda_coa(x_opt, opt_config)
 % OBJECTIVE_LBFGSB_PDA_COA
 % -----------------------------------------------------------------------
 % Objective function for bounded quasi-Newton (L-BFGS-B-style) optimization
-% of the PDA-CoA Lumped Parameter Model — Patient 1 (PDA-only) configuration.
-%
-% Patient 1 is a PDA-only patient.  No clinical CoA gradient is measured.
-% The objective is restricted to MAP and SV only:
-%
-%   J = w_MAP * ((sim_MAP - clin_MAP) / max(|clin_MAP|, 1.0))^2
-%     + w_SV  * ((sim_SV  - clin_SV)  / max(|clin_SV|,  0.1))^2
-%     + plausibility_penalties
-%
-% Active parameters: Emax_lv, stenosis_pct, R_systemic
-% Clinical targets:  MAP, SV
-% NOT used in objective: SBP, DBP, PP, dP_PDA, dP_CoA, Q_CoA/Q_total
+% of the PDA-CoA Lumped Parameter Model. The expanded objective constrains
+% systemic pressure, stroke volume, pulse pressure, PDA haemodynamics, and
+% (when measured) CoA gradient and optional Qp/Qs, EF, or EDV targets.
 %
 % INPUTS:
 %   x_opt       - (D_opt × 1) vector of current parameter values,
@@ -36,7 +27,7 @@ function [J, sim_outputs] = objective_lbfgsb_pda_coa(x_opt, opt_config)
 %
 % AUTHOR:   Optimization Extension — Cardiovascular Simulation Team
 % DATE:     2025-01-01
-% VERSION:  2.0  — restricted to MAP+SV objective for PDA-only patient
+% VERSION:  3.0  — expanded physiological targets and parameter priors
 % -----------------------------------------------------------------------
 
 %% 1. Unpack current parameter vector into the params struct
@@ -64,8 +55,7 @@ for k = 1:length(opt_config.param_names)
             params.Emax_rv = val * 0.5;
             params.Emin_rv = params.Emin_lv;
         case 'Emin_lv'
-            params.Emin_lv = val;              % Direct assignment for LV diastolic elastance
-            params.Emin_rv = val;
+            params.Emin_lv = val;              % LV diastolic elastance only
         case 'stenosis_pct'
             stenosis_pct = val;
         case 'coa_length_mm'
@@ -76,36 +66,6 @@ for k = 1:length(opt_config.param_names)
             params.C_ao = val;
         case 'R_pa'
             params.R_pa = val;
-    end
-end
-
-% Apply each optimized parameter to the struct
-for k = 1:length(opt_config.param_names)
-    pname = opt_config.param_names{k};
-    val   = x_opt(k);
-
-    switch pname
-        case 'R_systemic'
-            params.R_systemic = val;
-        case 'C_sys'
-            params.C_sys = val;
-        case 'Emax_lv'
-            params.Emax_lv = val;
-            params.Emin_lv = val * 0.05;   % Maintain 5% diastolic ratio
-            params.Emax_rv = val * 0.5;    % RV ≈ 50% LV (neonatal reference)
-            params.Emin_rv = params.Emin_lv;
-        case 'stenosis_pct'
-            stenosis_pct = val;
-        case 'coa_length_mm'
-            coa_length_mm = val;
-        case 'R_shunt_pda'
-            params.R_shunt_pda = val;
-        case 'C_ao'
-            params.C_ao = val;
-        case 'R_pa'
-            params.R_pa = val;
-        otherwise
-            % Unknown parameter name — silently ignore (safety)
     end
 end
 
@@ -114,7 +74,8 @@ end
 % Return heavy penalty if any parameter reaches a non-physical state.
 % This prevents the solver from exploring negative resistance/compliance.
 if params.R_systemic  <= 0 || params.C_sys      <= 0 || ...
-   params.Emax_lv     <= 0 || params.C_ao       <= 0 || ...
+   params.Emax_lv     <= 0 || params.Emin_lv    <= 0 || ...
+   params.Emin_lv >= params.Emax_lv || params.C_ao <= 0 || ...
    params.R_pa        <= 0 || params.R_shunt_pda <= 0 || ...
    stenosis_pct       <= 0 || stenosis_pct       >= 100 || ...
    coa_length_mm      <= 0
@@ -184,14 +145,10 @@ m = indices.model;   % Shorthand to simulated model outputs
 
 %% 6. Compute weighted normalized least-squares objective
 % -----------------------------------------------------------------------
-% Patient 1 is PDA-only.  Only MAP and SV are direct clinical targets.
 % Normalization uses max(|clin|, floor) to avoid division by tiny values.
 % A term is only added when: weight > 0, clinical value is finite and
 % non-zero, and the simulated value is finite.
 %
-% SBP, DBP, PP, dP_PDA, dP_CoA are NOT included (weights = 0).
-% CoA gradient (dP_coa_mmHg = 0 in CSV) is not a measured clinical value
-% for this patient and must not be used as an optimization target.
 J = 0;
 objective_breakdown = struct();
 
@@ -255,9 +212,11 @@ if w.PP > 0 && isfinite(clin_PP) && clin_PP ~= 0 && isfinite(sim_PP)
     objective_breakdown.PP.weighted_contribution = contrib_PP;
 end
 
-% --- Trans-PDA Pressure Gradient (dP_PDA) ---
+% --- Trans-PDA peak pressure gradient (Doppler-compatible) ---
 clin_dP_PDA = clinical.dP_pda_mmHg;
-sim_dP_PDA  = m.P_ao_mean - m.P_pa_mean;
+Pao_wave = X_sol(:, params_coa.idx.P_ao);
+Ppa_wave = X_sol(:, params_coa.idx.P_pa);
+sim_dP_PDA = max(abs(Pao_wave - Ppa_wave));
 if w.dP_PDA > 0 && isfinite(clin_dP_PDA) && clin_dP_PDA ~= 0 && isfinite(sim_dP_PDA)
     norm_dP_PDA = max(abs(clin_dP_PDA), 0.5);
     err_dP_PDA  = (sim_dP_PDA - clin_dP_PDA) / norm_dP_PDA;
@@ -265,6 +224,59 @@ if w.dP_PDA > 0 && isfinite(clin_dP_PDA) && clin_dP_PDA ~= 0 && isfinite(sim_dP_
     J = J + contrib_dP_PDA;
     objective_breakdown.dP_PDA.error = sim_dP_PDA - clin_dP_PDA;
     objective_breakdown.dP_PDA.weighted_contribution = contrib_dP_PDA;
+end
+
+% --- Optional pulmonary-to-systemic flow ratio ---
+clin_Qp_Qs = get_struct_value(clinical, 'Qp_Qs', NaN);
+sim_Qp_Qs  = get_first_field(m, {'Qp_Qs','QpQs','Qp_Qs_ratio'}, NaN);
+w_Qp_Qs    = get_struct_value(w, 'Qp_Qs', 0);
+if w_Qp_Qs > 0 && isfinite(clin_Qp_Qs) && clin_Qp_Qs > 0 && isfinite(sim_Qp_Qs)
+    err = (sim_Qp_Qs - clin_Qp_Qs) / max(abs(clin_Qp_Qs), 0.1);
+    contribution = w_Qp_Qs * err^2;
+    J = J + contribution;
+    objective_breakdown.Qp_Qs.error = sim_Qp_Qs - clin_Qp_Qs;
+    objective_breakdown.Qp_Qs.weighted_contribution = contribution;
+end
+
+% --- Optional LV ejection fraction ---
+clin_EF = get_struct_value(clinical, 'EF_lv_pct', NaN);
+sim_EF  = get_first_field(m, {'EF_lv','LVEF'}, NaN);
+w_EF    = get_struct_value(w, 'EF_lv', 0);
+% Harmonize fraction-versus-percent representations.
+if isfinite(clin_EF) && clin_EF > 1 && isfinite(sim_EF) && sim_EF <= 1
+    sim_EF = 100 * sim_EF;
+end
+if w_EF > 0 && isfinite(clin_EF) && clin_EF > 0 && isfinite(sim_EF)
+    err = (sim_EF - clin_EF) / max(abs(clin_EF), 1);
+    contribution = w_EF * err^2;
+    J = J + contribution;
+    objective_breakdown.EF_lv.error = sim_EF - clin_EF;
+    objective_breakdown.EF_lv.weighted_contribution = contribution;
+end
+
+% --- Optional LV end-diastolic volume ---
+clin_EDV = get_struct_value(clinical, 'EDV_lv_mL', NaN);
+sim_EDV  = get_first_field(m, {'EDV_lv','LVEDV'}, NaN);
+w_EDV    = get_struct_value(w, 'EDV_lv', 0);
+if w_EDV > 0 && isfinite(clin_EDV) && clin_EDV > 0 && isfinite(sim_EDV)
+    err = (sim_EDV - clin_EDV) / max(abs(clin_EDV), 0.1);
+    contribution = w_EDV * err^2;
+    J = J + contribution;
+    objective_breakdown.EDV_lv.error = sim_EDV - clin_EDV;
+    objective_breakdown.EDV_lv.weighted_contribution = contribution;
+end
+
+% --- Weak physiological prior to regularize the expanded parameter set ---
+% Eight adjustable parameters can otherwise remain practically
+% non-identifiable even with additional outputs.
+w_prior = get_struct_value(w, 'parameter_prior', 0);
+if w_prior > 0 && isfield(opt_config, 'x_reference') && ...
+        isfield(opt_config, 'lb') && isfield(opt_config, 'ub')
+    scale = max(opt_config.ub(:) - opt_config.lb(:), eps);
+    prior_error = (x_opt(:) - opt_config.x_reference(:)) ./ scale;
+    contribution = w_prior * mean(prior_error.^2);
+    J = J + contribution;
+    objective_breakdown.parameter_prior.weighted_contribution = contribution;
 end
 
 % --- CoA Peak Gradient (dP_CoA_peak) ---
@@ -292,6 +304,9 @@ sim_outputs.P_ao_sys             = m.P_ao_sys;
 sim_outputs.P_ao_dia             = m.P_ao_dia;
 sim_outputs.PP                   = m.P_ao_sys - m.P_ao_dia;
 sim_outputs.P_pa_mean            = m.P_pa_mean;
+sim_outputs.dP_PDA_peak          = sim_dP_PDA;
+sim_outputs.Qp_Qs                = sim_Qp_Qs;
+sim_outputs.EDV_lv               = sim_EDV;
 sim_outputs.CO_Lmin              = m.CO_Lmin;
 sim_outputs.EF_lv                = m.EF_lv;
 sim_outputs.DeltaP_coa_peak      = m.DeltaP_coa_peak;
@@ -307,4 +322,24 @@ sim_outputs.t_sol  = t_sol;
 sim_outputs.X_sol  = X_sol;
 sim_outputs.params = params_coa;
 
+end
+
+function value = get_struct_value(s, field_name, default_value)
+if isstruct(s) && isfield(s, field_name) && isnumeric(s.(field_name)) && ...
+        isscalar(s.(field_name))
+    value = s.(field_name);
+else
+    value = default_value;
+end
+end
+
+function value = get_first_field(s, field_names, default_value)
+value = default_value;
+for k = 1:numel(field_names)
+    if isstruct(s) && isfield(s, field_names{k}) && ...
+            isnumeric(s.(field_names{k})) && isscalar(s.(field_names{k}))
+        value = s.(field_names{k});
+        return;
+    end
+end
 end
