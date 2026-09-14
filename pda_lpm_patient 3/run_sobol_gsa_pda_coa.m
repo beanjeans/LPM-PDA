@@ -68,7 +68,7 @@ fprintf('=================================================================\n\n')
 % Base sample size (N). Total evaluations = N * (D + 2) where D = 8.
 %   N = 256 → 2560 evaluations (~30-45 min)
 %   N = 512 → 5120 evaluations (~60-90 min)
-N = 1024;
+N = 32;
 
 % Patient index (1-based, corresponds to patient_data.csv row)
 % Set to desired patient or loop over all patients

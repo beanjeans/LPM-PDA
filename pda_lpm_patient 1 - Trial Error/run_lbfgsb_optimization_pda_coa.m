@@ -71,45 +71,46 @@ fprintf('=================================================================\n\n')
 csv_path    = fullfile('config', 'patient_data.csv');
 patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 
-%% A2. Parameters to optimize (must match struct field names exactly)
-%  These are the influential parameters from Sobol GSA.
-%  Comment out any parameter you want to fix to its baseline value.
+%% A2. Parameters to optimize (Expanded set to prevent parameter non-identifiability)
+%  Includes baseline top GSA rankers plus parallel shunt and compliance pathways.
 opt_param_names = {
-    'Emax_lv'         % LV peak elastance         [mmHg/mL]    — ST_mean=0.81 (Rank 1)
-    'stenosis_pct'    % CoA stenosis severity     [%]          — ST_mean=0.66 (Rank 2)
-    'R_systemic'      % Total systemic resistance [mmHg·s/mL]  — ST_mean=0.21 (Rank 3)
+    'Emax_lv'         % LV peak elastance         [mmHg/mL]    — Systolic contractility
+    'Emin_lv'         % LV min elastance          [mmHg/mL]    — Diastolic compliance/filling
+    'stenosis_pct'    % CoA stenosis severity     [%]          — Geometry
+    'R_systemic'      % Total systemic resistance [mmHg·s/mL]  — Downstream SVR
+    'R_shunt_pda'     % PDA shunt resistance      [mmHg·s/mL]  — Trans-ductal flow control
+    'R_pa'            % Pulmonary resistance      [mmHg·s/mL]  — Downstream PVR
+    'C_sys'           % Systemic compliance       [mL/mmHg]    — Peripheral storage
+    'C_ao'            % Aortic compliance         [mL/mmHg]    — Proximal Windkessel
 };
 
 %% A3. Parameter bounds  [lower, upper]
-%  Order must match opt_param_names exactly.
-%  Chosen from physiological literature (neonatal ranges).
+%  Physiological neonatal bounds (matching allometric scaling ranges).
 opt_bounds = [
 %   Lower    Upper
-    0.5,     25.0   % Emax_lv      [mmHg/mL]    — allometric ceiling for neonate
-    5.0,     99.0   % stenosis_pct [%]           — full anatomical range
-    1.0,     15.0   % R_systemic   [mmHg·s/mL]  — neonatal SVR range (matches GSA bounds)
+    0.5,     40.0   % Emax_lv      [mmHg/mL]
+    0.01,    2.0    % Emin_lv      [mmHg/mL]
+    5.0,     99.0   % stenosis_pct [%]
+    1.0,     20.0   % R_systemic   [mmHg·s/mL]
+    0.5,     15.0   % R_shunt_pda  [mmHg·s/mL]
+    0.05,    12.0   % R_pa         [mmHg·s/mL]
+    0.01,    0.5    % C_sys        [mL/mmHg]
+    0.0001,  0.005  % C_ao         [mL/mmHg]
 ];
-% R_shunt_pda and C_ao are NOT optimized — GSA shows ST_mean < 0.05 for both.
-% R_shunt_pda is fixed at the Doppler-derived baseline: R = dP_pda / (A_pda × v_pda).
-% C_ao is fixed at the allometrically scaled default value.
 
 %% A4. Objective mode and weights
-%  Patient 1 is PDA-only.  No clinical CoA gradient is available.
-%  The objective uses only MAP and SV as direct clinical targets.
-%  Other outputs (SBP, DBP, dP_PDA, dP_CoA) are not included because
-%  they are not direct targets in this 3-parameter setup.
-objective_mode = 'direct_targets_MAP_SV_only';
-primary_optimization_metrics = {'MAP', 'SV'};
+objective_mode = 'expanded_physiological_targets';
+primary_optimization_metrics = {'MAP', 'SV', 'SBP', 'DBP', 'dP_PDA'};
 
-weights.MAP          = 5.0;   % Mean arterial pressure — primary direct target
-weights.SV           = 4.0;   % Stroke volume — primary direct target
-weights.SBP          = 0.0;   % Disabled — not a direct target for 3-param setup
-weights.DBP          = 0.0;   % Disabled — not a direct target for 3-param setup
-weights.PP           = 0.0;   % Disabled — C_ao is not optimized
-weights.dP_PDA       = 0.0;   % Disabled — not a direct target for 3-param setup
-weights.dP_CoA_peak  = 0.0;   % Disabled — no measured CoA for Patient 1
-weights.dP_CoA_mean  = 0.0;   % Disabled — no measured CoA for Patient 1
-weights.Q_CoA_frac   = 0.0;   % Disabled — no measured CoA for Patient 1
+weights.MAP          = 10.0;  % Primary systemic pressure target
+weights.SV           = 6.0;   % Primary stroke volume target
+weights.SBP          = 4.0;   % Constrains systolic peak and elastance
+weights.DBP          = 4.0;   % Constrains diastolic decay and compliance
+weights.PP           = 2.0;   % Pulse pressure constraint (SBP - DBP)
+weights.dP_PDA       = 3.0;   % Ductal pressure gradient (prevents runaway shunt)
+weights.dP_CoA_peak  = 2.0;   % Enabled for patients with measured CoA gradient (e.g. Patient 3)
+weights.dP_CoA_mean  = 0.0;   % Disabled
+weights.Q_CoA_frac   = 0.0;   % Disabled
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
 default_stenosis_pct   = 50.0;   % [%]  — starting geometry
@@ -121,11 +122,9 @@ n_report = 2;     % ODE reporting cycles
 penalty  = 1e6;   % Objective value returned on ODE/build failure
 
 %% A7. fmincon options
-% Algorithm: 'interior-point' is the correct bounded L-BFGS-B equivalent in
-% MATLAB's fmincon. It uses a limited-memory BFGS Hessian approximation
-% internally with explicit bound constraints.
-% Valid fmincon algorithms: 'interior-point', 'sqp', 'active-set',
-%                           'trust-region-reflective'
+% Typical scale values for finite-difference step sizing (must match length of opt_param_names)
+typical_x_vector = [10.0, 0.1, 50.0, 5.0, 2.0, 0.5, 0.1, 0.001];
+
 fmincon_opts = optimoptions('fmincon', ...
     'Algorithm',              'interior-point', ...
     'Display',                'iter', ...
@@ -134,8 +133,8 @@ fmincon_opts = optimoptions('fmincon', ...
     'OptimalityTolerance',    1e-6, ...
     'StepTolerance',          1e-8, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               [5.0, 50.0, 5.0], ...    % Emax_lv, stenosis_pct, R_systemic scales
-    'FiniteDifferenceStepSize', 1e-4, ...               % relative step; uniform for Emax/stenosis/Rsys
+    'TypicalX',               typical_x_vector, ...
+    'FiniteDifferenceStepSize', 1e-4, ...
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
@@ -287,12 +286,14 @@ opt_config.penalty       = penalty;
 
 % Build initial guess x0 from the baseline params (centre of bounds where unknown)
 x0 = zeros(length(opt_param_names), 1);
+% Update the switch statement inside Step 3:
 for k = 1:length(opt_param_names)
     pname = opt_param_names{k};
     switch pname
         case 'R_systemic',    x0(k) = params_base.R_systemic;
         case 'C_sys',         x0(k) = params_base.C_sys;
         case 'Emax_lv',       x0(k) = params_base.Emax_lv;
+        case 'Emin_lv',       x0(k) = params_base.Emin_lv; % <-- Added for LV diastolic elastance
         case 'stenosis_pct',  x0(k) = default_stenosis_pct;
         case 'coa_length_mm', x0(k) = default_coa_length_mm;
         case 'R_shunt_pda',   x0(k) = params_base.R_shunt_pda;
