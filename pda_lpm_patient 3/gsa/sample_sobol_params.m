@@ -95,22 +95,40 @@ fprintf('  Total evaluations:  N × (D+2) = %d\n', N * (D + 2));
 % Use MATLAB's Sobol quasi-random sequence (sobolset) for low-discrepancy
 % sampling. Skip the first point (origin) and leap for better uniformity.
 % -----------------------------------------------------------------------
+sampling_seed = 42;
+
+rng_state_before_sampling = rng;
+rng_cleanup = onCleanup(@() rng(rng_state_before_sampling));
+
+rng(sampling_seed, 'twister');
+
 try
-    sob = sobolset(D, 'Skip', 1, 'Leap', 31);
-    sob = scramble(sob, 'MatousekAffineOwen');  % Randomise for unbiased estimation
-    U = net(sob, 2 * N);  % Draw 2N points → split into A and B
-    fprintf('  Sampler: sobolset (quasi-random, scrambled)\n');
-catch
-    % Fallback: if Statistics Toolbox not available, use pseudo-random
-    warning('SAMPLE_SOBOL_PARAMS: sobolset unavailable — falling back to rand().');
-    rng(42, 'twister');  % Fixed seed for reproducibility
-    U = rand(2 * N, D);
-    fprintf('  Sampler: rand (pseudo-random, seed=42)\n');
+    sob = sobolset(2 * D, 'Skip', 1, 'Leap', 31);
+    sob = scramble(sob, 'MatousekAffineOwen');
+
+    U = net(sob, N);
+
+    U_A = U(:, 1:D);
+    U_B = U(:, D+1:2*D);
+
+    sampler_name = 'sobolset';
+    scramble_method = 'MatousekAffineOwen';
+
+catch ME
+    warning('SAMPLE_SOBOL_PARAMS:SobolUnavailable', ...
+        ['Sobol sampling unavailable (%s). ', ...
+         'Falling back to pseudo-random sampling.'], ...
+        ME.message);
+
+    rng(sampling_seed, 'twister');
+
+    U_A = rand(N, D);
+    U_B = rand(N, D);
+
+    sampler_name = 'rand';
+    scramble_method = 'none';
 end
 
-%% 3. Split into base matrices A and B
-U_A = U(1:N, :);       % N × D in [0,1]
-U_B = U(N+1:2*N, :);   % N × D in [0,1]
 
 %% 4. Construct Saltelli sampling scheme
 % -----------------------------------------------------------------------
@@ -154,12 +172,18 @@ for d = 1:D
 end
 
 %% 6. Pack metadata
-sample_info.N       = N;
-sample_info.D       = D;
-sample_info.n_total = n_total;
-sample_info.idx_A   = (1:N)';
-sample_info.idx_B   = (N+1:2*N)';
-sample_info.idx_ABi = idx_ABi;
+sample_info.N                = N;
+sample_info.D                = D;
+sample_info.n_total          = n_total;
+sample_info.idx_A            = (1:N)';
+sample_info.idx_B            = (N+1:2*N)';
+sample_info.idx_ABi          = idx_ABi;
+
+% Reproducibility metadata
+sample_info.sampling_seed    = sampling_seed;
+sample_info.sampler_name     = sampler_name;
+sample_info.scramble_method  = scramble_method;
+sample_info.sobol_dimensions = 2 * D;
 
 %% 7. Display parameter ranges
 fprintf('\n  %-18s %12s %12s\n', 'Parameter', 'Lower', 'Upper');
