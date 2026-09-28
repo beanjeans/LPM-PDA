@@ -221,13 +221,13 @@ if n_targets > 0
         denom = max(abs(clinical_vals(i)), normalization_floors(i));
         if isfinite(baseline_vals(i))
             err_pre = 100 * abs(baseline_vals(i) - clinical_vals(i)) / denom;
-            text(ax, 2, baseline_vals(i), sprintf('  %.1f%% error', err_pre), ...
+            text(ax, 2, baseline_vals(i), sprintf('  %.1f%% ', err_pre), ...
                 'Color', C_baseline, 'FontSize', 8, ...
                 'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom');
         end
         if isfinite(opt_vals(i))
             err_post = 100 * abs(opt_vals(i) - clinical_vals(i)) / denom;
-            text(ax, 3, opt_vals(i), sprintf('  %.1f%% error', err_post), ...
+            text(ax, 3, opt_vals(i), sprintf('  %.1f%% ', err_post), ...
                 'Color', C_optimized, 'FontSize', 8, ...
                 'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom');
         end
@@ -239,41 +239,6 @@ if n_targets > 0
     fig2_path = fullfile(results_dir, 'opt_clinical_comparison.png');
     exportgraphics(fig2, fig2_path, 'Resolution', 300);
     fprintf('  Saved: %s\n', fig2_path);
-end
-
-%% ========================================================================
-% FIGURE 3: PERCENTAGE ERROR REDUCTION
-% =========================================================================
-if n_targets > 0
-    denom = max(abs(clinical_vals), normalization_floors);
-    error_pre  = 100 * abs(baseline_vals - clinical_vals) ./ denom;
-    error_post = 100 * abs(opt_vals - clinical_vals) ./ denom;
-
-    fig3_height = max(420, 65 * n_targets + 180);
-    fig3 = figure('Name', 'Clinical Target Errors', ...
-        'Position', [130 80 900 fig3_height], 'Color', 'w');
-
-    b = barh(1:n_targets, [error_pre, error_post], 'grouped');
-    b(1).FaceColor = C_baseline;
-    b(1).EdgeColor = 'none';
-    b(2).FaceColor = C_optimized;
-    b(2).EdgeColor = 'none';
-
-    set(gca, 'YTick', 1:n_targets, 'YTickLabel', target_labels, ...
-        'YDir', 'reverse', 'FontSize', 10, 'Box', 'off', ...
-        'GridAlpha', 0.15);
-    xlabel('Absolute Error (%)', 'FontSize', 11);
-    title('Clinical Target Error Reduction', ...
-        'FontSize', 13, 'FontWeight', 'bold');
-    legend({'Baseline (Pre-Opt)', 'Optimized (Post-Opt)'}, ...
-        'Location', 'best', 'FontSize', 9);
-    grid on;
-
-    fig3_path = fullfile(results_dir, 'opt_target_errors.png');
-    exportgraphics(fig3, fig3_path, 'Resolution', 300);
-    fprintf('  Saved: %s\n', fig3_path);
-end
-
 end
 
 %% ------------------------------------------------------------------------
