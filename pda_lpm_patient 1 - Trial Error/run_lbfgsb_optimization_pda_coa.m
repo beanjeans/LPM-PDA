@@ -461,9 +461,9 @@ fprintf('STEP 8: Generating plots...\n');
 
 plot_optimization_results(baseline_outputs, opt_outputs, clinical, ...
     x_history, J_history, opt_param_names, results_dir);
-end
 
 fprintf('\n');
+
 
 % =========================================================================
 %  STEP 9 — FINAL OPTIMIZATION REPORT
