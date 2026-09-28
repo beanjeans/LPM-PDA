@@ -10,18 +10,15 @@
 %   Expanded objective: MAP, SV, SBP, DBP, PDA gradient and, when
 %   measured, CoA gradient, Qp/Qs, LV EF, and LV EDV.
 %
-%   Uses MATLAB fmincon with the 'interior-point' algorithm and parameter
-%   bounds — functionally equivalent to L-BFGS-B bounded optimization.
-%   ('interior-point' uses a limited-memory BFGS Hessian internally.)
+%   Uses MATLAB fmincon with the interior-point algorithm, bound constraints,
+%   normalized variables, and a limited-memory BFGS Hessian approximation.
 %
-%   Patient 1 is PDA-only.  No clinical CoA gradient is measured.
-%   The objective is restricted to MAP and SV.
-%   SBP, DBP, dP_PDA, dP_CoA are NOT used in the objective.
+%   Patient 1 is PDA-only. MAP, SV, SBP, DBP, and dP_PDA are calibrated.
+%   Virtual CoA geometry remains fixed near zero during calibration and is
+%   introduced later during the virtual CoA experiment.
 %
-% PARAMETERS OPTIMIZED (from Sobol GSA influential set, N=1024, 3 independent runs):
-%   Emax_lv (ST_mean=0.81), stenosis_pct (ST_mean=0.66), R_systemic (ST_mean=0.21)
-%   (C_ao, C_sys, coa_length_mm, R_pa, R_shunt_pda excluded — ST_mean < 0.05)
-%   To change, edit Section A2 opt_param_names and A3 opt_bounds.
+% PARAMETERS OPTIMIZED:
+%   Emax_lv, R_systemic, R_shunt_pda, R_pa, C_sys, and C_ao.
 % WORKFLOW:
 %   1. Load patient clinical data (non-interactive, batch mode)
 %   2. Build baseline model parameters
@@ -30,7 +27,7 @@
 %   5. Apply optimized parameters & run final simulation
 %   6. Save results to CSV
 %   7. Generate plots
-%   8. Report primary optimization outputs (MAP, SV only)
+%   8. Report all active clinical calibration targets
 %
 % OUTPUT FILES (saved to results/optimization/):
 %   optimized_parameters.csv    — optimized vs baseline parameter values
@@ -74,8 +71,6 @@ patient_idx = 1;    % Patient row index in patient_data.csv (1-based)
 %  Includes baseline top GSA rankers plus parallel shunt and compliance pathways.
 opt_param_names = {
     'Emax_lv'         % LV peak elastance         [mmHg/mL]    — Systolic contractility
-    'Emin_lv'         % LV min elastance          [mmHg/mL]    — Diastolic compliance/filling
-    'stenosis_pct'    % CoA stenosis severity     [%]          — Geometry
     'R_systemic'      % Total systemic resistance [mmHg·s/mL]  — Downstream SVR
     'R_shunt_pda'     % PDA shunt resistance      [mmHg·s/mL]  — Trans-ductal flow control
     'R_pa'            % Pulmonary resistance      [mmHg·s/mL]  — Downstream PVR
@@ -88,8 +83,6 @@ opt_param_names = {
 opt_bounds = [
 %   Lower    Upper
     3.0,     20.0   % Emax_lv      [mmHg/mL]
-    0.01,    2.0    % Emin_lv      [mmHg/mL]
-    10.0,    95.0   % stenosis_pct [%]
     1.0,     15.0   % R_systemic   [mmHg·s/mL]
     0.5,     20.0   % R_shunt_pda  [mmHg·s/mL]
     0.05,    1.0    % R_pa         [mmHg·s/mL]
@@ -108,37 +101,36 @@ weights.SBP          = 4.0;   % Constrains systolic peak and elastance
 weights.DBP          = 4.0;   % Constrains diastolic decay and compliance
 weights.PP           = 0.0;   % Avoid double-counting SBP and DBP
 weights.dP_PDA       = 3.0;   % Ductal pressure gradient (prevents runaway shunt)
-weights.dP_CoA_peak  = 2.0;   % Enabled for patients with measured CoA gradient (e.g. Patient 3)
+weights.dP_CoA_peak  = 0.0;   % P01 has no measured CoA gradient
 weights.dP_CoA_mean  = 0.0;   % Disabled
 weights.Q_CoA_frac   = 0.0;   % Disabled
-weights.Qp_Qs        = 3.0;   % Active only when a measured target exists
-weights.EF_lv        = 2.0;   % Active only when a measured target exists
-weights.EDV_lv       = 2.0;   % Active only when a measured target exists
+weights.Qp_Qs        = 0.0;   % Enable only when clinically measured
+weights.EF_lv        = 0.0;   % Enable only when clinically measured
+weights.EDV_lv       = 0.0;   % Enable only when clinically measured
 weights.parameter_prior = 0.1; % Weak regularization for identifiability
 
 %% A5. Fixed CoA geometry (used if stenosis_pct / coa_length_mm NOT in opt_param_names)
-default_stenosis_pct   = 50.0;   % [%]  — starting geometry
+default_stenosis_pct   =  0.1;   % [%]  — starting geometry
 default_coa_length_mm  =  5.0;   % [mm] — mid-range scenario
 
 %% A6. Solver settings
-n_warmup = 8;     % ODE warm-up cycles (validated: steady-state by cycle 6)
-n_report = 2;     % ODE reporting cycles
+n_warmup = 15;    % Longer settling period for a smoother objective
+n_report = 3;     % Reporting cycles used to calculate outputs
 penalty  = 1e6;   % Objective value returned on ODE/build failure
 
 %% A7. fmincon options
-% Typical scale values for finite-difference step sizing (must match length of opt_param_names)
-typical_x_vector = [10.0, 0.1, 50.0, 5.0, 2.0, 0.5, 0.1, 0.001];
-
+% fmincon optimizes normalized variables z in [0,1].
 fmincon_opts = optimoptions('fmincon', ...
     'Algorithm',              'interior-point', ...
+    'HessianApproximation',   'lbfgs', ...
     'Display',                'iter', ...
-    'MaxIterations',          200, ...
-    'MaxFunctionEvaluations', 2000, ...
-    'OptimalityTolerance',    1e-6, ...
-    'StepTolerance',          1e-8, ...
+    'MaxIterations',          300, ...
+    'MaxFunctionEvaluations', 5000, ...
+    'OptimalityTolerance',    1e-4, ...
+    'StepTolerance',          1e-6, ...
     'FiniteDifferenceType',   'central', ...
-    'TypicalX',               typical_x_vector, ...
-    'FiniteDifferenceStepSize', 1e-4, ...
+    'FiniteDifferenceStepSize', 1e-3, ...
+    'ScaleProblem',           true, ...
     'OutputFcn',              @optimization_output_callback);
 
 %% A8. Output directory
@@ -283,6 +275,10 @@ fprintf('STEP 3: Configuring optimization...\n');
 lb = opt_bounds(:, 1);
 ub = opt_bounds(:, 2);
 
+assert(size(opt_bounds,1) == numel(opt_param_names), ...
+    'Number of parameter bounds must match opt_param_names.');
+assert(all(ub > lb), 'Every upper bound must be greater than its lower bound.');
+
 % Build the config struct passed to the objective function
 opt_config.param_names   = opt_param_names;
 opt_config.fixed_params  = params_base;
@@ -303,9 +299,6 @@ for k = 1:length(opt_param_names)
         case 'R_systemic',    x0(k) = params_base.R_systemic;
         case 'C_sys',         x0(k) = params_base.C_sys;
         case 'Emax_lv',       x0(k) = params_base.Emax_lv;
-        case 'Emin_lv',       x0(k) = params_base.Emin_lv; % <-- Added for LV diastolic elastance
-        case 'stenosis_pct',  x0(k) = default_stenosis_pct;
-        case 'coa_length_mm', x0(k) = default_coa_length_mm;
         case 'R_shunt_pda',   x0(k) = params_base.R_shunt_pda;
         case 'C_ao',          x0(k) = params_base.C_ao;
         case 'R_pa',          x0(k) = params_base.R_pa;
@@ -319,6 +312,10 @@ end
 opt_config.x_reference = x0;
 opt_config.lb = lb;
 opt_config.ub = ub;
+
+% Normalize physical parameters x to optimizer variables z in [0,1].
+z0 = (x0 - lb) ./ (ub - lb);
+to_physical = @(z) lb + z .* (ub - lb);
 
 fprintf('  Optimizing %d parameters:\n', length(opt_param_names));
 fprintf('  %-18s  %10s  %8s  %8s\n', 'Parameter', 'x0', 'LB', 'UB');
@@ -349,30 +346,42 @@ fprintf('  fmincon algorithm: interior-point (limited-memory BFGS Hessian)\n\n')
 
 % Shared storage for the output callback
 global OPT_HISTORY_X OPT_HISTORY_J OPT_ITER_COUNT;
-OPT_HISTORY_X   = x0';         % 1 × D
+OPT_HISTORY_X   = z0';         % Store normalized parameter history
 OPT_HISTORY_J   = J_baseline;  % 1 × 1
 OPT_ITER_COUNT  = 0;
 
-obj_func = @(x) objective_lbfgsb_pda_coa(x, opt_config);
+obj_func = @(z) objective_lbfgsb_pda_coa( ...
+    to_physical(z), opt_config);
 
 t_opt_start = tic;
 
-[x_opt, J_opt, exitflag, output_struct] = fmincon( ...
-    obj_func, x0, ...      % objective and initial point
-    [], [], [], [], ...    % no linear constraints
-    lb, ub, ...            % bounds
-    [], ...                % no nonlinear constraints
-    fmincon_opts);
+[z_opt, J_opt, exitflag, output_struct] = fmincon( ...
+    obj_func, z0, ...
+    [], [], [], [], ...
+    zeros(size(z0)), ones(size(z0)), ...
+    [], fmincon_opts);
 
 t_opt_elapsed = toc(t_opt_start);
+
+x_opt = to_physical(z_opt);
 
 fprintf('\n  Optimization finished in %.1f s (%d iterations, %d func evals)\n', ...
     t_opt_elapsed, output_struct.iterations, output_struct.funcCount);
 fprintf('  Exit flag: %d  (%s)\n\n', exitflag, exit_flag_message(exitflag));
 
-% Retrieve history recorded by callback
-x_history = OPT_HISTORY_X;   % n_iter × D
-J_history  = OPT_HISTORY_J;  % n_iter × 1
+if isfield(output_struct, 'firstorderopt')
+    fprintf('  First-order optimality: %.3e\n', output_struct.firstorderopt);
+    if output_struct.firstorderopt > 1e-2
+        warning('RUN_LBFGSB:PoorConvergence', ...
+            ['Optimization stopped without adequate convergence. ', ...
+             'First-order optimality = %.3e.'], output_struct.firstorderopt);
+    end
+end
+
+% Convert normalized history back to physical units for output and plots.
+z_history = OPT_HISTORY_X;
+x_history = lb' + z_history .* (ub - lb)';
+J_history = OPT_HISTORY_J;
 
 % =========================================================================
 %  STEP 6 — POST-OPTIMIZATION SIMULATION
@@ -437,8 +446,9 @@ else
 end
 
 mat_path = fullfile(results_dir, 'optimization_workspace.mat');
-save(mat_path, 'x_opt', 'x0', 'J_opt', 'J_baseline', 'J_final', ...
-    'x_history', 'J_history', 'opt_config', 'clinical', 'params_opt', ...
+save(mat_path, 'x_opt', 'x0', 'z_opt', 'z0', ...
+    'J_opt', 'J_baseline', 'J_final', ...
+    'x_history', 'z_history', 'J_history', 'opt_config', 'clinical', 'params_opt', ...
     'stenosis_opt', 'coa_length_opt', 'baseline_outputs', 'opt_outputs', ...
     'objective_mode', 'weights', 'primary_optimization_metrics', ...
     'objective_breakdown_baseline', 'objective_breakdown_final');
@@ -523,14 +533,14 @@ fprintf('=======================================================================
 %  LOCAL FUNCTIONS
 %% =========================================================================
 
-function stop = optimization_output_callback(x, optimValues, state)
-% Records x and J at each fmincon iteration into global history arrays.
+function stop = optimization_output_callback(z, optimValues, state)
+% Records normalized z and J at each fmincon iteration.
     global OPT_HISTORY_X OPT_HISTORY_J OPT_ITER_COUNT;
     stop = false;
     if strcmp(state, 'iter')
         OPT_ITER_COUNT  = OPT_ITER_COUNT + 1;
         OPT_HISTORY_J   = [OPT_HISTORY_J;   optimValues.fval];
-        OPT_HISTORY_X   = [OPT_HISTORY_X;   x(:)'];
+        OPT_HISTORY_X   = [OPT_HISTORY_X;   z(:)'];
     end
 end
 
